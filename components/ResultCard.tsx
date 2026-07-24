@@ -9,7 +9,7 @@
  */
 import { seedCode } from '@/lib/share';
 
-export type DeathReason = 'stomp' | 'shockwave' | 'caught';
+export type DeathReason = 'claw' | 'fall' | 'caught';
 
 export interface ResultData {
   distance: number;
@@ -20,8 +20,8 @@ export interface ResultData {
 }
 
 const REASON_COPY: Record<DeathReason, string> = {
-  stomp: '파수꾼의 발에 짓밟혔다.',
-  shockwave: '충격파에 휩쓸렸다.',
+  claw: '파수꾼의 손톱에 갈렸다.',
+  fall: '무너진 도로 틈에 빠졌다.',
   caught: '파수꾼에게 붙잡혔다.',
 };
 

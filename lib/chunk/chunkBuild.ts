@@ -32,6 +32,7 @@ import {
   LEAF_COLOR,
   TRUNK_COLOR,
   CHUNK_LEN,
+  VEHICLE_COLORS,
   type MaterialFamily,
 } from '../constants';
 import { chunkRng } from '../rng';
@@ -303,9 +304,110 @@ export function buildChunk(
     group.add(trunks, leaves);
   }
 
-  // No forward obstacle course in the foot-dodge core (reversed camera can't see
-  // ahead): the hazard is the warden's stomping feet (engine). Empty by design.
+  // ---- forward obstacles (the 3/4 over-shoulder camera sees the road ahead, so
+  // these are back: cars, debris chunks, road gaps, low barriers, overhead bars).
+  // Read by FORM + natural shadow only — no color paint / hazard zones (user
+  // feedback). Placed in (s, lateral) space; the hero controller (engine) evades
+  // them by steering / jumping / sliding, or grazes (slows -> the predator closes).
   const obstacles: Obstacle[] = [];
+  const obMats = {
+    car: VEHICLE_COLORS.map((c) =>
+      track(new MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.15, flatShading: true })),
+    ),
+    debris: track(new MeshStandardMaterial({ color: 0x8f8b83, roughness: 0.92, metalness: 0, flatShading: true })),
+    dark: track(new MeshStandardMaterial({ color: 0x0c0b0a, roughness: 1, metalness: 0 })),
+    barrier: track(new MeshStandardMaterial({ color: 0x5e5a53, roughness: 0.86, metalness: 0, flatShading: true })),
+    post: track(new MeshStandardMaterial({ color: 0x4a4640, roughness: 0.88, metalness: 0, flatShading: true })),
+  };
+  const addBox = (
+    w: number, h: number, d: number,
+    cx: number, cy: number, cz: number,
+    yaw: number, mat: MeshStandardMaterial, cast = true,
+  ) => {
+    const geo = track(new BoxGeometry(w, h, d));
+    const m = new Mesh(geo, mat);
+    m.position.set(cx, cy, cz);
+    m.rotation.y = yaw;
+    m.castShadow = cast;
+    m.receiveShadow = true;
+    group.add(m);
+  };
+
+  let oid = index * 1000 + 500;
+  const obN = Math.min(6, Math.round(rng.range(1.4, 2.8) + s0 / 950)); // denser deeper (§8)
+  for (let k = 0; k < obN; k++) {
+    const s = rng.range(s0 + 10, s1 - 8);
+    course.frame(s, fr);
+    const hw = fr.halfWidth;
+    const yaw = Math.atan2(-fr.tx, -fr.tz);
+    const at = (lat: number) => ({ x: fr.x + fr.rx * lat, z: fr.z + fr.rz * lat });
+    const kind = rng.weighted<Obstacle['kind']>([
+      ['vehicle', 0.4],
+      ['block', 0.26],
+      ['jump', 0.14],
+      ['slide', 0.1],
+      ['gap', 0.1],
+    ]);
+
+    if (kind === 'vehicle') {
+      const w = 2.0;
+      const len = rng.range(3.8, 4.8);
+      const lat = rng.sign() * rng.range(0.4, Math.max(0.6, hw - 2.4));
+      const p = at(lat);
+      const body = obMats.car[rng.int(0, obMats.car.length - 1)];
+      addBox(w, 1.15, len, p.x, 0.6, p.z, yaw, body);
+      addBox(w * 0.86, 0.7, len * 0.5, p.x, 1.35, p.z - Math.cos(yaw) * 0, yaw, body); // cabin
+      obstacles.push({
+        id: oid++, kind: 'vehicle', sMin: s - len / 2, sMax: s + len / 2,
+        latCenter: lat, latHalf: w / 2 + 0.3, yClear: 1.35, resolved: false,
+      });
+    } else if (kind === 'block') {
+      const w = rng.range(1.6, 2.8);
+      const h = rng.range(1.9, 3.2);
+      const d = rng.range(1.6, 2.6);
+      const lat = rng.sign() * rng.range(0.3, Math.max(0.5, hw - 2.0));
+      const p = at(lat);
+      addBox(w, h, d, p.x, h / 2, p.z, yaw + rng.range(-0.4, 0.4), obMats.debris);
+      addBox(w * 0.7, h * 0.5, d * 0.7, p.x, h * 0.85, p.z, yaw + rng.range(-0.6, 0.6), obMats.debris);
+      obstacles.push({
+        id: oid++, kind: 'block', sMin: s - d / 2, sMax: s + d / 2,
+        latCenter: lat, latHalf: w / 2 + 0.3, yClear: 3.4, resolved: false,
+      });
+    } else if (kind === 'jump') {
+      const w = rng.range(3.2, 5.0);
+      const lat = rng.range(-1, 1) * Math.max(0.2, hw - w / 2 - 0.5);
+      const p = at(lat);
+      addBox(w, 0.6, 0.7, p.x, 0.3, p.z, yaw, obMats.barrier);
+      obstacles.push({
+        id: oid++, kind: 'jump', sMin: s - 0.6, sMax: s + 0.6,
+        latCenter: lat, latHalf: w / 2, yClear: 0.75, resolved: false,
+      });
+    } else if (kind === 'slide') {
+      const w = rng.range(3.2, 5.0);
+      const lat = rng.range(-1, 1) * Math.max(0.2, hw - w / 2 - 0.5);
+      const p = at(lat);
+      const rx = fr.rx;
+      const rz = fr.rz;
+      addBox(0.24, 1.7, 0.24, p.x - rx * (w / 2), 0.85, p.z - rz * (w / 2), yaw, obMats.post);
+      addBox(0.24, 1.7, 0.24, p.x + rx * (w / 2), 0.85, p.z + rz * (w / 2), yaw, obMats.post);
+      addBox(w, 0.34, 0.34, p.x, 1.55, p.z, yaw, obMats.barrier);
+      obstacles.push({
+        id: oid++, kind: 'slide', sMin: s - 0.5, sMax: s + 0.5,
+        latCenter: lat, latHalf: w / 2, yClear: 1.6, resolved: false,
+      });
+    } else {
+      // gap: a recessed pit spanning most of the avenue — jump across it
+      const gw = rng.range(3.5, 5.0);
+      const gs = rng.range(2.6, 3.6);
+      const lat = rng.range(-0.6, 0.6) * hw * 0.4;
+      const p = at(lat);
+      addBox(gw, 0.9, gs, p.x, -0.45, p.z, yaw, obMats.dark, false); // sunk pit (top ~y0)
+      obstacles.push({
+        id: oid++, kind: 'gap', sMin: s - gs / 2, sMax: s + gs / 2,
+        latCenter: lat, latHalf: gw / 2, yClear: 0, resolved: false,
+      });
+    }
+  }
 
   const destroyBuilding = (id: number) => {
     const info = buildings.find((b) => b.id === id);

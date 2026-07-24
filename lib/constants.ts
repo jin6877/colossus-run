@@ -42,7 +42,10 @@ export const WARDEN_SEAM = 0xaecbd6; // crack seam
 export const WARDEN_CORE = 0xcfe6ee; // brightest crack core
 export const WARDEN_COLD = 0xb7d6df; // cold emissive (creature signature — scene only)
 export const WARDEN_RIM_WARM = 0xe4cfa6; // warm back-light rim on the mask
-export const WARDEN_HEIGHT = 50; // total height H (m)
+// ~4m agile predator (user override of the 50m titan). The porcelain-crack /
+// funeral-mask / cold-glow detail is kept but re-proportioned for a fast, lean
+// biped stalker — threat now comes from SPEED + a clawing swipe, not size.
+export const WARDEN_HEIGHT = 4;
 
 // ---- Hero (DESIGN §5 / §10) ----
 export const HERO_BONE = 0xcec6b8; // bone off-white (catches warm rim)
@@ -99,28 +102,14 @@ export const FAMILY: Record<MaterialFamily, FamilySpec> = {
   roof: { variants: [0x2e2f31, 0x343436, 0x28292b], roughness: 0.72, metalness: 0.0 },
 };
 
-// ---- Camera / proximity (DESIGN §4 / §10, PROJECT.md §7) ----
+// ---- Camera (PROJECT.md §7 — 3/4 over-shoulder chase). The full rig geometry
+// lives in chaseCamera.ts; these are the shared bits (hero head height for the
+// aim + framerate-independent smoothing time constants). ----
 export const CAM = {
-  farGap: 55,
-  nearGap: 8,
-  catchGap: 3,
-  // rig interpolation endpoints (PROJECT.md §7.1–7.2). distanceBackNear must
-  // exceed the near gap so the camera pulls BACK PAST the warden — otherwise the
-  // 50m creature sits at the camera and can't be framed (DESIGN §4.5 목표 우선;
-  // §7.2 seeds 11m, we widen to guarantee the looming top-third framing).
-  distanceBackFar: 6.5,
-  distanceBackNear: 16,
-  heightFar: 3.0,
-  heightNear: 7,
-  pitchFar: (-7 * Math.PI) / 180,
-  pitchNear: (13 * Math.PI) / 180,
-  fovFar: 60,
-  fovNear: 78,
-  shoulder: 0.9,
-  headY: 1.7,
-  tauPos: 0.14,
-  tauPosSnap: 0.06,
-  tauRot: 0.1,
+  headY: 1.5, // hero head height (m) — the camera's aim anchor
+  tauPos: 0.13, // position smoothing time
+  tauPosSnap: 0.06, // faster snap for the death-cam swing
+  tauRot: 0.1, // aim smoothing time
 } as const;
 
 // ---- Rising smoke (disaster pass, meteor-city original) ----

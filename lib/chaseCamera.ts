@@ -1,11 +1,11 @@
 /**
- * Chase camera — REVERSED (user override of the rear-cam design). The camera now
- * sits AHEAD of the fleeing hero and looks BACK + UP, so the warden fills the
- * frame, huge and overwhelming, looming over the hero who runs toward us. This
- * makes the giant the star and its stomping feet fully readable (the new core).
- * Left/right input is flipped by the engine so screen-space steering stays
- * intuitive. Framerate-independent exponential smoothing kills jitter; the
- * death-cam cranes UP the colossus as the foot/hand comes down.
+ * Chase camera — 3/4 OVER-SHOULDER rear rig (user override of the reversed cam).
+ * It sits behind + above the fleeing hero and looks FORWARD down the course, so
+ * the road ahead fills the upper frame (you see obstacles coming) while the hero
+ * sits low/back and the ~4m predator — following on the hero's heels — stays in
+ * frame just behind/below them. Core tension reads in one shot: dodge the road
+ * ahead + juke the claw behind. Framerate-independent exponential smoothing kills
+ * jitter; the death-cam swings to a 3/4 side angle as the claw comes down.
  */
 import { PerspectiveCamera, Vector3, MathUtils } from 'three';
 import { CAM } from './constants';
@@ -18,9 +18,9 @@ export interface ChaseContext {
   heroX: number;
   heroZ: number;
   heroY: number; // head height incl. jump
-  steer: number; // smoothed steer (screen-space) for look-lead
+  steer: number; // smoothed steer for look-lead
   speed: number;
-  proximity: number; // 0..1 threat intensity (drives a little punch-in)
+  proximity: number; // 0..1 incoming-swipe threat (drives a little pull-back)
   wardenX: number;
   wardenZ: number;
   dying: boolean;
@@ -28,11 +28,11 @@ export interface ChaseContext {
   shake: CameraShake;
 }
 
-const FRONT_DIST = 10.5; // camera this far AHEAD of the fleeing hero (down-course)
-const CAM_HEIGHT = 5.5; // up enough to see the hero + landing ground + the giant
-const SHOULDER = 2.8; // side offset -> 3/4 view so the giant's legs don't hide the hero
-const LOOK_UP = 3.8; // aim just above the hero (keeps it off the bottom edge), giant fills above
-const AIM_BACK = 4; // pull the aim back toward the giant (behind the hero)
+const BACK = 7.2; // camera this far BEHIND the hero (up-course) — past the warden
+const HEIGHT = 3.2; // up enough to see over the hero + the road ahead
+const SHOULDER = 1.5; // side offset -> 3/4 over-shoulder view
+const LOOK_AHEAD = 9; // aim this far down-course -> forward road gets the headroom
+const LOOK_UP = 1.4; // lift the aim toward the horizon (hero sits low in frame)
 
 export class ChaseCamera {
   private pos = new Vector3();
@@ -41,7 +41,6 @@ export class ChaseCamera {
   private _off = new Vector3();
   private _desPos = new Vector3();
   private _desAim = new Vector3();
-  private _tmp = new Vector3();
 
   reset() {
     this.inited = false;
@@ -53,25 +52,22 @@ export class ChaseCamera {
     const tz = frame.tz;
     const rx = frame.rx;
     const rz = frame.rz;
-    const head = this._tmp.set(ctx.heroX, ctx.heroY, ctx.heroZ);
 
     if (!ctx.dying) {
-      // during a stomp the giant LUNGES in, so pull the camera BACK + UP + widen
-      // the fov so the hero, the foot and the telegraph all stay in frame to dodge
-      const back = FRONT_DIST + p * 7;
-      const camH = CAM_HEIGHT + p * 4;
-      // camera AHEAD of the hero (+T), up, shouldered — looking back at the giant
+      // as the claw closes, ease the camera back + up so the swipe stays visible
+      const back = BACK + p * 1.8;
+      const height = HEIGHT + p * 0.8;
+      // behind the hero (−T), shouldered, up — looking forward down the course
       this._desPos.set(
-        head.x + tx * back + rx * SHOULDER,
-        head.y + camH,
-        head.z + tz * back + rz * SHOULDER,
+        ctx.heroX - tx * back + rx * SHOULDER,
+        ctx.heroY + height,
+        ctx.heroZ - tz * back + rz * SHOULDER,
       );
-      // aim above + behind the hero (−T) so the looming warden centres in-frame;
-      // steer lead is screen-space (engine already flipped input)
+      // aim ahead of the hero (+T) + up toward the horizon, with a little steer lead
       this._desAim.set(
-        head.x - tx * AIM_BACK + rx * ctx.steer * 1.4,
-        head.y + LOOK_UP + p * 3,
-        head.z - tz * AIM_BACK + rz * ctx.steer * 1.4,
+        ctx.heroX + tx * LOOK_AHEAD + rx * ctx.steer * 2.0,
+        ctx.heroY + LOOK_UP,
+        ctx.heroZ + tz * LOOK_AHEAD + rz * ctx.steer * 2.0,
       );
 
       if (!this.inited) {
@@ -86,22 +82,27 @@ export class ChaseCamera {
       camera.position.copy(this.pos);
       camera.lookAt(this.aim);
 
-      // fov: base + speed ramp + widen during a stomp (see more to dodge)
+      // fov: base + speed ramp + a touch wider during a swipe (see more to dodge)
       const speedK = MathUtils.clamp((ctx.speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN), 0, 1);
-      const fov = 64 + speedK * 6 + p * 7;
+      const fov = 62 + speedK * 6 + p * 4;
       if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = fov;
         camera.updateProjectionMatrix();
       }
-      ctx.shake.swayAmp = p > 0.6 ? (p - 0.6) / 0.4 * (0.5 * Math.PI / 180) : 0;
+      ctx.shake.swayAmp = p > 0.6 ? ((p - 0.6) / 0.4) * ((0.5 * Math.PI) / 180) : 0;
     } else {
-      // death-cam: low, beside the hero, craning UP the colossus as it comes down
+      // death-cam: swing beside + slightly below the hero, framing the predator
+      // rearing over them as the claw slams down (small crane for a ~4m creature)
       const k = MathUtils.clamp(ctx.deathT / 0.9, 0, 1);
-      this._desPos.set(head.x + rx * 5 + tx * 3, head.y + 1.6, head.z + rz * 5 + tz * 3);
-      const ax = ctx.wardenX + (ctx.heroX - ctx.wardenX) * 0.4;
-      const az = ctx.wardenZ + (ctx.heroZ - ctx.wardenZ) * 0.4;
-      this._desAim.set(ax, head.y + 4 + k * 26, az);
-      const fov = 74;
+      this._desPos.set(
+        ctx.heroX + rx * 4 + tx * 1.5,
+        ctx.heroY + 1.0,
+        ctx.heroZ + rz * 4 + tz * 1.5,
+      );
+      const ax = ctx.wardenX + (ctx.heroX - ctx.wardenX) * 0.5;
+      const az = ctx.wardenZ + (ctx.heroZ - ctx.wardenZ) * 0.5;
+      this._desAim.set(ax, ctx.heroY + 1.6 + k * 2.4, az);
+      const fov = 66;
       if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = fov;
         camera.updateProjectionMatrix();

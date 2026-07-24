@@ -104,15 +104,17 @@ function SunRig({ engine, quality }: { engine: Engine; quality: QualityPreset })
     const h = engine.heroPos;
     const tx = engine.tangent.x;
     const tz = engine.tangent.z;
-    // low back-light: 80m behind (−T), 26m up, ~16° elevation -> long forward shadow
-    _p.set(h.x - tx * 80, 26, h.z - tz * 80);
+    // low back-light: 30m behind (−T), 12m up, ~22° elevation -> shadows fall
+    // FORWARD (down-course) where the over-shoulder camera can read them. Scaled
+    // down for the ~4m predator (was tuned for a 50m titan's long forward shadow).
+    _p.set(h.x - tx * 30, 12, h.z - tz * 30);
     l.position.copy(_p);
     target.position.set(h.x, 0, h.z);
     target.updateMatrixWorld();
-    // camera-side fill so the reversed camera doesn't leave the hero a black
-    // silhouette (the key light backlights it now) — weak, cool, no shadow
+    // gentle down-course fill so the forward faces of the road/obstacles aren't
+    // pure shadow under the backlight — weak, cool, no shadow
     const f = fillRef.current;
-    if (f) f.position.set(h.x + tx * 50, 18, h.z + tz * 50);
+    if (f) f.position.set(h.x + tx * 40, 16, h.z + tz * 40);
   });
 
   return (
@@ -126,18 +128,18 @@ function SunRig({ engine, quality }: { engine: Engine; quality: QualityPreset })
         target={target}
         shadow-mapSize-width={quality.shadowMapSize}
         shadow-mapSize-height={quality.shadowMapSize}
-        shadow-radius={5}
+        shadow-radius={4}
         shadow-bias={-0.0004}
-        shadow-normalBias={0.03}
+        shadow-normalBias={0.02}
         shadow-camera-near={1}
-        shadow-camera-far={260}
-        shadow-camera-left={-70}
-        shadow-camera-right={70}
-        shadow-camera-top={130}
-        shadow-camera-bottom={-70}
+        shadow-camera-far={110}
+        shadow-camera-left={-42}
+        shadow-camera-right={42}
+        shadow-camera-top={62}
+        shadow-camera-bottom={-40}
       />
-      {/* camera-side fill (hero readability under the reversed camera) */}
-      <directionalLight ref={fillRef} color="#8b93a1" intensity={0.7} target={target} />
+      {/* gentle down-course fill (forward-face readability) */}
+      <directionalLight ref={fillRef} color="#8b93a1" intensity={0.5} target={target} />
     </>
   );
 }

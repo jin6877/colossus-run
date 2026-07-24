@@ -1,21 +1,24 @@
 /**
- * Warden controller (PROJECT.md §4, foot-dodge core). The reversed camera faces
- * the warden, so it now LOOMS directly over the fleeing hero (a small fixed gap)
- * instead of chasing from a readable distance. Its danger is its STOMPING FEET:
- * on a cadence it raises a foot, a ground shadow telegraphs the landing lane
- * (natural — no color paint), then it SLAMS. Stand in the footprint at slam and
- * you're crushed; dodge left/right (or the shockwave, which you hop). Pure logic
- * (no three) — the timing/aim (predictive lead) is unit-testable. The rig reads
- * gaitPhase / stomp state / attention to drive the 2-bone IK, the head look-at
- * and the cold crack glow.
+ * Warden controller — a ~4m AGILE PORCELAIN PREDATOR (user override of the 50m
+ * titan + foot-stomp core). It is FAST: it rubber-bands right onto the fleeing
+ * hero's heels and, on a tight cadence, rears an arm back (windup telegraph) and
+ * SWIPES its claw across a locked lane band. Stand in that band at the strike and
+ * you die; you must juke left/right — or hop a low rake / duck a high rake — OUT
+ * of the locked band during the windup. Running straight = the swipe lands on you
+ * = death (that's the whole point of this override). Pure logic (no three) so the
+ * timing/aim is unit-testable; the rig reads gaitPhase / swipe state / attention
+ * to drive the leg IK, the arm swipe, the head look-at and the cold crack glow.
  */
 
-const LOOM_GAP = 13; // the warden looms this far behind (hero clearly in foreground)
-const STOMP_GAP = 6; // it LUNGES forward to this gap to stomp, then recovers
-const RECOVER = 0.3; // seconds to lift the foot back after a slam
-const SLAM_T = 0.14; // seconds of the foot coming down
+const FOLLOW_GAP = 4.2; // holds this close behind the hero (predator on the heels)
+const ENGAGE_GAP = 7; // will open a swipe once within this
+const STRIKE_GAP = 1.3; // lunges to ~here as the claw connects, then recovers
+const STRIKE_T = 0.16; // seconds the claw sweeps across
+const RECOVER = 0.32; // seconds to pull the arm back after a swipe
 
-export type StompPhase = 'idle' | 'raise' | 'slam' | 'recover';
+export type SwipePhase = 'idle' | 'windup' | 'strike' | 'recover';
+/** 0 = mid rake (dodge = lateral), 1 = low rake (lateral OR jump), 2 = high rake (lateral OR slide). */
+export type SwipeMode = 0 | 1 | 2;
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -28,18 +31,19 @@ export class Warden {
   gaitPhase = 0;
   attention = 0;
   emissiveSurge = 0;
-  lungeT = 0; // reserved for hand sweeps (rig reads)
 
-  // ---- stomp ----
-  stompPhase: StompPhase = 'idle';
-  stompLeg: 'L' | 'R' = 'R';
-  targetLat = 0;
-  targetS = 0;
-  stompT = 0;
-  stompCd = 0;
-  windup = 0.8; // current windup length (for telegraph progress)
-  telegraphProgress = 0; // 0..1 while the foot is raised
-  slamEvent = false; // true the frame a slam lands (engine consumes)
+  // ---- claw swipe ----
+  swipePhase: SwipePhase = 'idle';
+  swipeArm: 'L' | 'R' = 'R';
+  swipeMode: SwipeMode = 0;
+  swipeCount = 0;
+  targetLat = 0; // locked lateral aim (center of the kill band)
+  swipeT = 0;
+  swipeCd = 0;
+  windup = 0.7; // current windup length (telegraph)
+  swipeProgress = 0; // 0..1 during windup (fill), then 0..1 across the strike
+  strikeEvent = false; // true the frame the claw connects (engine consumes the kill check)
+  lunge = 0; // 0..1 forward lunge amount (rig + gap)
 
   reset(startGap: number) {
     this.s = -startGap;
@@ -48,22 +52,26 @@ export class Warden {
     this.gaitPhase = 0;
     this.attention = 0;
     this.emissiveSurge = 0;
-    this.stompPhase = 'idle';
-    this.stompLeg = 'R';
+    this.swipePhase = 'idle';
+    this.swipeArm = 'R';
+    this.swipeMode = 0;
+    this.swipeCount = 0;
     this.targetLat = 0;
-    this.targetS = 0;
-    this.stompT = 0;
-    this.stompCd = 1.1; // first stomp ~1s in
-    this.telegraphProgress = 0;
-    this.slamEvent = false;
+    this.swipeT = 0;
+    this.swipeCd = 0.9; // first swipe ~0.9s in — pressure comes fast
+    this.windup = 0.7;
+    this.swipeProgress = 0;
+    this.strikeEvent = false;
+    this.lunge = 0;
   }
 
   gapTo(heroS: number): number {
     return heroS - this.s;
   }
 
-  get stomping(): boolean {
-    return this.stompPhase !== 'idle';
+  /** True while a swipe is winding up or striking (telegraph visible / claw live). */
+  get attacking(): boolean {
+    return this.swipePhase === 'windup' || this.swipePhase === 'strike';
   }
 
   update(
@@ -77,72 +85,82 @@ export class Warden {
     leadTime: number,
     avenueHalf: number,
   ) {
-    this.slamEvent = false;
+    this.strikeEvent = false;
 
-    // loom behind; LUNGE forward while stomping so a foot can reach the hero, then
-    // recover — the giant surging in to slam reads as menace + a fair dodge window
-    const gapNow = this.stomping ? STOMP_GAP : LOOM_GAP;
+    // rubber-band right onto the hero's heels; lunge in during a strike so the
+    // claw actually reaches. Fast time-constant = an agile predator, not a lumbering
+    // titan. It always at least matches the hero's speed, so it never falls away.
+    const gapNow =
+      this.swipePhase === 'strike'
+        ? STRIKE_GAP - this.lunge * 1.0
+        : this.attacking
+        ? FOLLOW_GAP * 0.62
+        : FOLLOW_GAP;
     const targetS = heroS - gapNow;
-    this.s += (targetS - this.s) * (1 - Math.exp(-dt / 0.22));
-    this.speed += (heroSpeed - this.speed) * (1 - Math.exp(-dt / 0.3));
-    this.lateral += (heroLateral - this.lateral) * (1 - Math.exp(-dt / 0.45));
+    this.s += (targetS - this.s) * (1 - Math.exp(-dt / 0.15));
+    this.speed += (heroSpeed - this.speed) * (1 - Math.exp(-dt / 0.22));
+    // body tracks the hero laterally (stays behind them), but the swipe's aim is
+    // LOCKED at windup start so a late juke escapes it
+    this.lateral += (heroLateral - this.lateral) * (1 - Math.exp(-dt / 0.28));
 
-    // locomotion gait (legs shuffle) + always-watching attention
-    const cadence = clamp(0.45 + heroSpeed * 0.01, 0.45, 0.78);
+    // fast, light gait (agile) + always-watching attention
+    const cadence = clamp(1.0 + heroSpeed * 0.03, 1.0, 2.2);
     this.gaitPhase = (this.gaitPhase + cadence * dt) % 1;
-    this.attention += (0.85 - this.attention) * (1 - Math.exp(-dt / 0.5));
+    this.attention += (0.92 - this.attention) * (1 - Math.exp(-dt / 0.35));
 
-    // stomp state machine
-    switch (this.stompPhase) {
+    const gap = heroS - this.s;
+
+    // swipe state machine
+    switch (this.swipePhase) {
       case 'idle':
-        this.stompCd -= dt;
-        if (this.stompCd <= 0) {
-          this.stompLeg = this.stompLeg === 'R' ? 'L' : 'R';
-          // aim at the hero's PREDICTED lateral (dodge window = windup)
-          this.targetLat = clamp(heroLateral + heroLatVel * leadTime, -avenueHalf + 1, avenueHalf - 1);
-          this.targetS = heroS - 0.5;
+        this.swipeCd -= dt;
+        if (this.swipeCd <= 0 && gap <= ENGAGE_GAP) {
+          this.swipeArm = this.swipeArm === 'R' ? 'L' : 'R';
+          this.swipeMode = (this.swipeCount % 3) as SwipeMode;
+          this.swipeCount++;
+          // lock the aim at the hero's PREDICTED lane (dodge window = the windup)
+          this.targetLat = clamp(
+            heroLateral + heroLatVel * leadTime,
+            -avenueHalf + 0.6,
+            avenueHalf - 0.6,
+          );
           this.windup = windup;
-          this.stompT = windup;
-          this.telegraphProgress = 0;
-          this.stompPhase = 'raise';
+          this.swipeT = windup;
+          this.swipeProgress = 0;
+          this.swipePhase = 'windup';
           this.emissiveSurge = 1;
         }
         break;
-      case 'raise':
-        this.stompT -= dt;
-        this.telegraphProgress = clamp(1 - this.stompT / this.windup, 0, 1);
-        if (this.stompT <= 0) {
-          this.stompPhase = 'slam';
-          this.stompT = SLAM_T;
-          this.slamEvent = true;
+      case 'windup':
+        this.swipeT -= dt;
+        this.swipeProgress = clamp(1 - this.swipeT / this.windup, 0, 1);
+        if (this.swipeT <= 0) {
+          this.swipePhase = 'strike';
+          this.swipeT = STRIKE_T;
+          this.strikeEvent = true; // engine resolves the kill on this frame
           this.emissiveSurge = 1;
         }
         break;
-      case 'slam':
-        this.stompT -= dt;
-        if (this.stompT <= 0) {
-          this.stompPhase = 'recover';
-          this.stompT = RECOVER;
+      case 'strike':
+        this.swipeT -= dt;
+        this.swipeProgress = clamp(1 - this.swipeT / STRIKE_T, 0, 1);
+        this.lunge = Math.sin(this.swipeProgress * Math.PI); // 0 -> 1 -> 0 lunge
+        if (this.swipeT <= 0) {
+          this.swipePhase = 'recover';
+          this.swipeT = RECOVER;
+          this.lunge = 0;
         }
         break;
       case 'recover':
-        this.stompT -= dt;
-        if (this.stompT <= 0) {
-          this.stompPhase = 'idle';
-          this.stompCd = interval;
-          this.telegraphProgress = 0;
+        this.swipeT -= dt;
+        if (this.swipeT <= 0) {
+          this.swipePhase = 'idle';
+          this.swipeCd = interval;
+          this.swipeProgress = 0;
         }
         break;
     }
 
     if (this.emissiveSurge > 0) this.emissiveSurge = Math.max(0, this.emissiveSurge - dt / 0.4);
-  }
-
-  /** Foot height (world y) of the stomping foot for the current phase. */
-  stompFootY(): number {
-    if (this.stompPhase === 'raise') return 13;
-    if (this.stompPhase === 'slam') return 13 * (this.stompT / SLAM_T);
-    if (this.stompPhase === 'recover') return 13 * (1 - this.stompT / RECOVER);
-    return 0;
   }
 }

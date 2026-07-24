@@ -5,11 +5,14 @@
  * fixed-step hero/warden sim, chunk streaming, warden-driven destruction, debris,
  * fx, camera — happens here and never triggers a React re-render.
  *
- * CORE (user override): the camera is REVERSED to face the looming warden, and
- * the hazard is its STOMPING FEET. Each stomp aims a foot at the hero's predicted
- * lane, a ground shadow telegraphs it, then it SLAMS: stand in the footprint =
- * crushed; the expanding shockwave must be hopped. Dodge left/right (+ jump).
- * No forward obstacle course, no color hazard paint — the shadow is the read.
+ * CORE (user override): a ~4m AGILE PREDATOR chases on the hero's heels under a
+ * 3/4 over-shoulder camera that shows the road AHEAD. Two tensions run at once:
+ *   1. dodge the FORWARD obstacles (cars, debris, gaps, barriers) — read by form
+ *      + natural shadow, no color paint;
+ *   2. juke the warden's CLAW SWIPE — it locks a lane band, telegraphs a ground
+ *      rake, then strikes: stand in the band (i.e. run straight) and you die.
+ * Missing an obstacle grazes you → the predator closes → the claw lands. Running
+ * straight is lethal by design.
  */
 import { Group, Vector3, PerspectiveCamera } from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
@@ -24,15 +27,10 @@ import type { BuildingInfo } from './chunk/chunkTypes';
 import { Hero, type HeroInput } from './hero';
 import { Warden } from './warden';
 import { buildHeroRig, applyHeroPose, type HeroParts } from './render/heroRig';
-import {
-  buildWardenRig,
-  applyWardenPose,
-  type WardenParts,
-  type StompPose,
-} from './render/wardenRig';
+import { buildWardenRig, applyWardenPose, type WardenParts } from './render/wardenRig';
 import { DustWall } from './render/dustWall';
-import { FootTelegraph } from './render/footTelegraph';
-import { speedAt, stompIntervalAt, windupAt, leadTimeAt } from './difficulty';
+import { ClawTelegraph } from './render/clawTelegraph';
+import { speedAt, swipeIntervalAt, windupAt, leadTimeAt } from './difficulty';
 import { InputManager } from './input';
 import { CAM, SLOMO_SCALE } from './constants';
 import type { QualityPreset } from './quality';
@@ -40,26 +38,18 @@ import type { QualityPreset } from './quality';
 type RWorld = InstanceType<typeof RAPIER.World>;
 
 export type GameState = 'title' | 'running' | 'dying' | 'gameover';
-export type DeathReason = 'stomp' | 'shockwave' | 'caught';
+export type DeathReason = 'claw' | 'fall' | 'caught';
 
-const R_DESTROY = 40; // warden path-clear radius (spectacle)
-const START_GAP = 13; // the warden looms this far behind at the start of a run
-const TITLE_GAP = 22; // pulled back for the title portrait
+const R_DESTROY = 20; // warden street-clearing radius (only LOW structures — no tower topples)
+const LOW_BUILDING_H = 14; // a 4m predator only shatters street-level structures below this
+const START_GAP = 6; // the predator starts this close behind (eases onto the heels)
+const TITLE_GAP = 6; // portrait framing
 const HOT = 0x7c2408; // warm ember hot-color on fresh debris
 const DEATH_TIME = 2.4; // seconds of death-cam before the result card
 
-const FOOT_R_LAT = 2.7; // stomp footprint half-width (lateral) — crush zone
-const FOOT_R_S = 3.4; // stomp footprint half-length (along course)
-const FOOT_TELE_R = 3.6; // telegraph shadow radius
-const SHOCK_SPEED = 22; // shockwave ring expansion (m/s)
-const SHOCK_MAX = 15; // shockwave outer radius (m)
-
-interface Shock {
-  cs: number;
-  cl: number;
-  t: number;
-  hit: boolean;
-}
+const SWIPE_HALF = 2.5; // lateral half-width of the claw kill band (matches the telegraph)
+const HERO_HALF_W = 0.6; // hero lateral half-width for obstacle overlap
+const STRIDE_DUST = 3.5; // warden kicks warm dust every this many metres it charges
 
 export class Engine {
   readonly root = new Group();
@@ -85,18 +75,18 @@ export class Engine {
   private heroRig: HeroParts;
   private wardenRig: WardenParts;
   private dustWall: DustWall;
-  private footTele: FootTelegraph;
+  private clawTele: ClawTelegraph;
 
   private state: GameState = 'title';
   private simTime = 0;
   private timeScale = 1;
   private deathElapsed = 0;
   private fractureAcc = 0;
+  private strideAcc = 0;
   private distance = 0;
   private bestDistance = 0;
-  private caughtReason: DeathReason = 'stomp';
-  hitFlash = 0; // spikes on a shockwave graze (HUD red flash + shake)
-  private shocks: Shock[] = [];
+  private caughtReason: DeathReason = 'claw';
+  hitFlash = 0; // spikes on an obstacle graze (HUD red flash + shake)
 
   private _fr: Frame = makeFrame();
   private _fr2: Frame = makeFrame();
@@ -118,11 +108,11 @@ export class Engine {
     this.heroRig = buildHeroRig();
     this.wardenRig = buildWardenRig(quality.proceduralBoneQuality);
     this.dustWall = new DustWall(makeFrame());
-    this.footTele = new FootTelegraph();
+    this.clawTele = new ClawTelegraph();
     this.root.add(this.heroRig.group);
     this.root.add(this.wardenRig.group);
     this.root.add(this.dustWall.mesh);
-    this.root.add(this.footTele.group);
+    this.root.add(this.clawTele.group);
   }
 
   async init() {
@@ -148,7 +138,7 @@ export class Engine {
     }
     this.debris?.reset();
     this.fx.clear();
-    this.footTele.hide();
+    this.clawTele.hide();
     this.course = new Course(this.seed);
     this.chunks = new ChunkManager(this.course, this.seed, this.quality);
     this.root.add(this.chunks.group);
@@ -162,7 +152,7 @@ export class Engine {
     this.proximity = 0;
     this.simTime = 0;
     this.hitFlash = 0;
-    this.shocks.length = 0;
+    this.strideAcc = 0;
     this.stepper.reset();
   }
 
@@ -179,9 +169,9 @@ export class Engine {
     this.timeScale = 1;
     this.deathElapsed = 0;
     this.fractureAcc = 0;
+    this.strideAcc = 0;
     this.hitFlash = 0;
-    this.shocks.length = 0;
-    this.footTele.hide();
+    this.clawTele.hide();
     this.onStateChange?.('running');
   }
 
@@ -193,7 +183,7 @@ export class Engine {
     this.deathElapsed = 0;
     this.input.enabled = false;
     this.shake.add(0.8);
-    this.footTele.hide();
+    this.clawTele.hide();
     if (this.distance > this.bestDistance) this.bestDistance = this.distance;
     this.onStateChange?.('dying');
   }
@@ -204,7 +194,7 @@ export class Engine {
 
   /** Force a death (verification harness only — deterministic death-cam). */
   forceDeath() {
-    this.triggerDeath('stomp');
+    this.triggerDeath('claw');
   }
 
   getHud() {
@@ -246,7 +236,7 @@ export class Engine {
       distance: this.distance,
       gap: this.warden.gapTo(this.hero.s),
       proximity: this.proximity,
-      stomping: this.warden.stomping,
+      attacking: this.warden.attacking,
       chunks: this.chunks?.loadedCount ?? 0,
       debris: this.debris?.count ?? 0,
       rubble: this.debris?.rubble ?? 0,
@@ -282,7 +272,7 @@ export class Engine {
     this.hero.phase = (this.hero.phase + 0.15 * dt) % 1;
     this.warden.s = -TITLE_GAP;
     this.warden.gaitPhase = (this.warden.gaitPhase + 0.28 * dt) % 1;
-    this.warden.attention += (0.5 - this.warden.attention) * (1 - Math.exp(-dt / 1));
+    this.warden.attention += (0.6 - this.warden.attention) * (1 - Math.exp(-dt / 1));
     this.warden.emissiveSurge = Math.max(0, this.warden.emissiveSurge - dt / 0.4);
     this.proximity = 0.12;
     this.chunks!.update(0);
@@ -296,8 +286,8 @@ export class Engine {
 
     if (this.state === 'running') {
       this.input.consume(this._input);
-      // reversed camera -> flip steer so screen-space left/right stays intuitive
-      this._input.steer = -this._input.steer;
+      // 3/4 over-shoulder camera looks forward, so screen-space steering is direct
+      // again (no reversed-cam flip)
       this.distance = Math.floor(this.hero.s);
       const base = speedAt(this.distance);
       this.hero.update(dt, this._input, course, base);
@@ -309,31 +299,37 @@ export class Engine {
         this.hero.lateral,
         this.hero.lateralVelocity,
         this.hero.speed,
-        stompIntervalAt(this.distance),
+        swipeIntervalAt(this.distance),
         windupAt(this.distance),
         leadTimeAt(this.distance),
         avenueHalf,
       );
 
-      // a stomp lands: FX + shockwave + fracture + direct-hit crush check
-      if (this.warden.slamEvent) this.onSlam();
+      // a claw swipe connects: resolve the lateral-band kill (or a whiff + FX)
+      if (this.warden.strikeEvent) this.resolveSwipe();
 
-      // expanding shockwaves — hop them or take a graze
-      this.updateShocks(dt);
+      // forward obstacle collisions (juke or graze; gaps are fatal)
+      this.checkObstacles();
 
-      // steady path-clear fracture (warden levels the flanking city — spectacle)
-      this.fractureAcc += this.quality.wardenFractureRate * dt;
+      // the charging predator kicks warm dust + shatters street-level structures it
+      // plows past (4m scale: no tower topples — low buildings, props, debris)
       const wf = course.worldAt(this.warden.s, this.warden.lateral, this._fr);
+      this.strideAcc += this.warden.speed * dt;
+      if (this.strideAcc >= STRIDE_DUST) {
+        this.strideAcc = 0;
+        this.fx.strideDust([wf.x, 0.15, wf.z]);
+      }
+      this.fractureAcc += this.quality.wardenFractureRate * dt;
       while (this.fractureAcc >= 1) {
         this.fractureAcc -= 1;
-        this.fractureAround(wf.x, wf.z, 0);
+        this.fractureLowNear(wf.x, wf.z);
       }
 
-      // proximity = incoming-slam threat (drives red vignette + camera punch-in)
+      // proximity = incoming-swipe threat (drives the red vignette + camera ease-back)
       const target =
-        this.warden.stompPhase === 'raise'
-          ? this.warden.telegraphProgress
-          : this.warden.stompPhase === 'slam'
+        this.warden.swipePhase === 'windup'
+          ? this.warden.swipeProgress
+          : this.warden.swipePhase === 'strike'
           ? 1
           : 0;
       this.proximity += (target - this.proximity) * (1 - Math.exp(-dt / 0.12));
@@ -342,9 +338,9 @@ export class Engine {
       const hw = course.worldAt(this.hero.s, this.hero.lateral, this._fr2);
       this.ground!.follow(hw.x, hw.z);
     } else if (this.state === 'dying') {
-      // the warden comes down over the hero (the pose reach drives the slam)
-      this.warden.s += (this.hero.s - 4 - this.warden.s) * (1 - Math.exp(-dt / 0.45));
-      this.warden.lateral += (this.hero.lateral - this.warden.lateral) * (1 - Math.exp(-dt / 0.4));
+      // the predator rears over the caught hero (the pose reach drives the slash)
+      this.warden.s += (this.hero.s - 1.6 - this.warden.s) * (1 - Math.exp(-dt / 0.35));
+      this.warden.lateral += (this.hero.lateral - this.warden.lateral) * (1 - Math.exp(-dt / 0.3));
       this.warden.attention = 1;
       this.warden.emissiveSurge = Math.min(1, this.warden.emissiveSurge + dt);
     }
@@ -354,44 +350,64 @@ export class Engine {
     this.fx.update(dt);
   }
 
-  /** Resolve a foot slam: impact FX, shockwave, building fracture, crush check. */
-  private onSlam() {
+  /** Resolve a claw swipe: kill if the hero is in the locked lane band un-dodged. */
+  private resolveSwipe() {
     const course = this.course!;
-    const sp = course.worldAt(this.warden.targetS, this.warden.targetLat, this._fr3);
-    this.fx.footfall([sp.x, 0.3, sp.z], 2.4, 1); // big warm dust + ground crack + cold flash
-    this.fx.collapse([sp.x, 0.4, sp.z], 11); // warm-dust shockwave ring + bloom spike
-    this.shake.add(0.55);
-    this.fractureAround(sp.x, sp.z, 1); // the slam levels a nearby building
-    this.shocks.push({ cs: this.warden.targetS, cl: this.warden.targetLat, t: 0, hit: false });
-
-    // direct crush: standing in the footprint at slam = death
     const dLat = Math.abs(this.hero.lateral - this.warden.targetLat);
-    const dS = Math.abs(this.hero.s - this.warden.targetS);
-    if (dLat < FOOT_R_LAT && dS < FOOT_R_S) this.triggerDeath('stomp');
+    const sp = course.worldAt(this.hero.s, this.warden.targetLat, this._fr3);
+    // claw rakes the ground: dust + a shallow rake decal + cold bloom spike
+    this.fx.footfall([sp.x, 0.25, sp.z], 0.7, this.proximity);
+    this.fx.coldSpike(1.1);
+    this.shake.add(0.4);
+    if (dLat < SWIPE_HALF) {
+      // in the band — a mode-appropriate evade can still save you: mode 1 (low
+      // rake) is hopped, mode 2 (high rake) is ducked; mode 0 is lateral-only
+      const airborne = this.hero.yJump > 0.8;
+      const sliding = this.hero.sliding;
+      const dodged =
+        (this.warden.swipeMode === 1 && airborne) || (this.warden.swipeMode === 2 && sliding);
+      if (!dodged) this.triggerDeath('claw');
+    }
   }
 
-  private updateShocks(dt: number) {
-    for (let i = this.shocks.length - 1; i >= 0; i--) {
-      const sh = this.shocks[i];
-      sh.t += dt;
-      const r = sh.t * SHOCK_SPEED;
-      if (r > SHOCK_MAX) {
-        this.shocks.splice(i, 1);
-        continue;
+  /** Forward obstacle collisions in (s, lateral) space (PROJECT.md §3/§5). */
+  private checkObstacles() {
+    const hs = this.hero.s;
+    const hl = this.hero.lateral;
+    const yj = this.hero.yJump;
+    this.chunks!.forEachObstacle((o) => {
+      if (o.resolved) return;
+      if (hs < o.sMin - 0.3 || hs > o.sMax + 0.3) return;
+      if (Math.abs(hl - o.latCenter) > o.latHalf + HERO_HALF_W) return;
+      switch (o.kind) {
+        case 'gap':
+          // a pit: grounded over it = you fall in (jump across to clear)
+          if (yj < 0.5) {
+            o.resolved = true;
+            this.triggerDeath('fall');
+          }
+          break;
+        case 'slide':
+          // overhead bar / fallen beam: slide under it
+          if (!this.hero.sliding && yj < 0.2) {
+            o.resolved = true;
+            this.grazeHit();
+          }
+          break;
+        default:
+          // vehicle / block / rubble / jump barrier — solid; clear its height or graze
+          if (yj < o.yClear) {
+            o.resolved = true;
+            this.grazeHit();
+          }
+          break;
       }
-      if (sh.hit) continue;
-      const dist = Math.hypot(this.hero.s - sh.cs, this.hero.lateral - sh.cl);
-      // grounded hero caught by the ring edge takes a graze (hop to clear it)
-      if (Math.abs(dist - r) < 1.2 && this.hero.yJump < 0.6) {
-        sh.hit = true;
-        this.grazeHit();
-      }
-    }
+    });
   }
 
   private grazeHit() {
     this.hero.graze();
-    this.shake.add(0.4);
+    this.shake.add(0.35);
     this.hitFlash = 1;
   }
 
@@ -401,14 +417,15 @@ export class Engine {
     return this.eventQueueInst;
   }
 
-  /** Fracture the nearest alive building within R_DESTROY of (x,z). */
-  private fractureAround(x: number, z: number, footfall: number) {
+  /** Shatter the nearest alive LOW building within R_DESTROY (street-level only). */
+  private fractureLowNear(x: number, z: number) {
     if (!this.debris || !this.chunks) return;
     this.chunks.buildingsNear(x, z, R_DESTROY, this._binfos);
     if (this._binfos.length === 0) return;
     let best: BuildingInfo | null = null;
     let bestD = Infinity;
     for (const b of this._binfos) {
+      if (b.size[1] > LOW_BUILDING_H) continue; // no tower topples at 4m scale
       const dx = b.center[0] - x;
       const dz = b.center[2] - z;
       const dd = dx * dx + dz * dz;
@@ -420,21 +437,19 @@ export class Engine {
     if (!best) return;
     const info = best;
     this.chunks.destroyBuilding(info.id);
-    this._impact.set(info.center[0], Math.min(info.size[1] * 0.5, 8), info.center[2]);
-    const tall = info.size[1] > 24;
-    const desired = tall ? this.quality.chunksFine : this.quality.chunksCoarse;
+    this._impact.set(info.center[0], Math.min(info.size[1] * 0.5, 6), info.center[2]);
     this.debris.fractureBuilding(
       info.center,
       info.size,
       info.color,
       this._impact,
-      1.0 + footfall * 0.6,
+      1.2,
       HOT,
       0.3,
-      desired,
+      this.quality.chunksCoarse,
     );
-    this.fx.collapse([info.center[0], info.size[1] * 0.5, info.center[2]], info.size[1] * 0.5 + 6);
-    if (Math.random() < 0.25) this.fx.ignite([info.center[0], 1, info.center[2]], info.size[1] * 0.4);
+    this.fx.collapse([info.center[0], info.size[1] * 0.5, info.center[2]], info.size[1] * 0.5 + 4);
+    if (Math.random() < 0.2) this.fx.ignite([info.center[0], 1, info.center[2]], info.size[1] * 0.4);
   }
 
   private renderActors(camera: PerspectiveCamera, dt: number) {
@@ -450,21 +465,14 @@ export class Engine {
     const dyingFrame = this.state === 'dying' || this.state === 'gameover';
     const reach = dyingFrame ? clamp01(this.deathElapsed / 0.9) : 0;
 
-    // stomp pose for the rig (aim the foot at the target lane + raise/slam it)
-    let stomp: StompPose | null = null;
-    if (this.state === 'running' && this.warden.stomping) {
-      stomp = {
-        leg: this.warden.stompLeg,
-        rootX: clampR(this.warden.targetLat - this.warden.lateral, -7, 7),
-        footZ: -(this.warden.targetS - this.warden.s),
-        footY: this.warden.stompFootY(),
-      };
-      // telegraph shadow at the target lane
-      const tp = course.worldAt(this.warden.targetS, this.warden.targetLat, this._fr3);
-      const prog = this.warden.stompPhase === 'raise' ? this.warden.telegraphProgress : 1;
-      this.footTele.update(tp.x, tp.z, FOOT_TELE_R, prog);
+    // claw telegraph: a ground rake across the locked lane band, at the hero's row
+    if (this.state === 'running' && this.warden.attacking) {
+      const tp = course.worldAt(this.hero.s, this.warden.targetLat, this._fr3);
+      const facing = Math.atan2(-this._fr3.tx, -this._fr3.tz);
+      const prog = this.warden.swipePhase === 'windup' ? this.warden.swipeProgress : 1;
+      this.clawTele.update(tp.x, tp.z, facing, SWIPE_HALF, prog);
     } else {
-      this.footTele.hide();
+      this.clawTele.hide();
     }
 
     applyWardenPose(
@@ -474,11 +482,10 @@ export class Engine {
       ww.x,
       ww.z,
       hw.x,
-      headY - 1.2,
+      headY,
       hw.z,
       this.simTime,
       reach,
-      stomp,
     );
 
     this.dustWall.update(course, this.warden.s, camera, this.proximity);
@@ -503,15 +510,17 @@ export class Engine {
     }
   }
 
-  /** Slow cinematic title portrait of the looming warden (DESIGN §7.4). */
+  /** Slow side-on title portrait: the idle hero with the predator looming behind. */
   private titleCam(camera: PerspectiveCamera, hx: number, hz: number, wx: number, wz: number) {
     const t = this.simTime;
     const fr = this._fr;
-    const side = Math.sin(t * 0.12) * 11;
-    camera.position.set(hx + fr.tx * 32 + fr.rx * side, 22, hz + fr.tz * 32 + fr.rz * side);
-    camera.lookAt(wx, 37, wz);
-    if (Math.abs(camera.fov - 48) > 0.01) {
-      camera.fov = 48;
+    const midX = (hx + wx) / 2;
+    const midZ = (hz + wz) / 2;
+    const side = 6.5 + Math.sin(t * 0.12) * 1.5;
+    camera.position.set(midX + fr.rx * side + fr.tx * 1.5, 2.6, midZ + fr.rz * side + fr.tz * 1.5);
+    camera.lookAt(midX, 1.9, midZ);
+    if (Math.abs(camera.fov - 44) > 0.01) {
+      camera.fov = 44;
       camera.updateProjectionMatrix();
     }
   }
@@ -531,7 +540,4 @@ export class Engine {
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-function clampR(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
 }

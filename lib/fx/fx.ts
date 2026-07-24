@@ -725,6 +725,12 @@ export class FXManager {
     this.fire.puffSmoke([pos[0], pos[1] + 0.3, pos[2]], 0.5 + scale * 0.3);
   }
 
+  /** Light warm-dust kick under the charging warden's stride (no decal/flash). */
+  strideDust(pos: [number, number, number]) {
+    this.dust.fire([pos[0], pos[1] + 0.2, pos[2]], FOOTFALL_DUST, 0.4, 0.6);
+    this.fire.puffSmoke([pos[0], pos[1] + 0.2, pos[2]], 0.35);
+  }
+
   /** A building pancaking: warm-dust shockwave ring + dust column + bloom spike. */
   collapse(pos: [number, number, number], R: number) {
     this.rings.fire([pos[0], Math.max(0.2, pos[1]), pos[2]], R);

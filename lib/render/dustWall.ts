@@ -1,8 +1,9 @@
 /**
- * Chasing dust wall (DESIGN §축 3 / §3.4) — the dense curtain of ash the warden's
- * destruction pushes ahead of itself. A single soft billboard that rides just
- * behind the warden and yaw-faces the camera, so the warden "뚫고 솟는" (rises out
- * of) a glowing dust wall at close range and chunk pop-in behind it is hidden.
+ * Trailing dust plume (DESIGN §축 3 / §3.4, rescaled for the ~4m predator) — a
+ * modest curtain of warm ash kicked up right behind the warden as it charges. A
+ * single soft billboard that rides just behind the creature and yaw-faces the
+ * camera. Under the 3/4 over-shoulder camera it mostly sits behind frame; it
+ * reads best on the death-cam swing, where the predator rears out of its own ash.
  * Warm ember tint at the base (fire behind the dust), fading to ashen dust up top.
  */
 import {
@@ -73,17 +74,17 @@ export class DustWall {
       opacity: 0.9,
       fog: true,
     });
-    this.mesh = new Mesh(new PlaneGeometry(150, 90), mat);
+    this.mesh = new Mesh(new PlaneGeometry(22, 11), mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 2;
   }
 
   update(course: Course, wardenS: number, camera: PerspectiveCamera, proximity: number) {
-    const p = course.worldAt(wardenS - 16, 0, this._fr);
-    this.mesh.position.set(p.x, 36, p.z);
+    const p = course.worldAt(wardenS - 4, 0, this._fr);
+    this.mesh.position.set(p.x, 4.6, p.z);
     // yaw-face the camera (billboard around Y only)
-    this.mesh.lookAt(camera.position.x, 36, camera.position.z);
+    this.mesh.lookAt(camera.position.x, 4.6, camera.position.z);
     // denser as it closes in
-    (this.mesh.material as MeshBasicMaterial).opacity = 0.6 + proximity * 0.35;
+    (this.mesh.material as MeshBasicMaterial).opacity = 0.5 + proximity * 0.3;
   }
 }
