@@ -110,21 +110,23 @@ export class ChaseCamera {
       // low-frequency dread sway at extreme proximity (DESIGN §4.4)
       ctx.shake.swayAmp = p > 0.85 ? (p - 0.85) / 0.15 * (0.4 * Math.PI / 180) : 0;
     } else {
-      // ---- death-cam: swing to a 3/4 rear angle, hero + warden looming ----
-      const k = MathUtils.clamp(ctx.deathT / 0.6, 0, 1);
-      const ang = 2.35; // ~135° behind, to the side
-      const dist = 9;
+      // ---- death-cam: 3/4 rear angle, low, craning UP the towering colossus ----
+      const k = MathUtils.clamp(ctx.deathT / 0.9, 0, 1);
+      const ang = 2.4; // ~137° behind, to the side
+      const dist = 13;
       const dirX = Math.sin(ang) * rx + Math.cos(ang) * -tx;
       const dirZ = Math.sin(ang) * rz + Math.cos(ang) * -tz;
-      this._desPos.set(
-        head.x + dirX * dist,
-        head.y + 4.5,
-        head.z + dirZ * dist,
-      );
-      // look toward a point above the hero (where the warden's hand descends)
-      const mx = (ctx.heroX + ctx.wardenX) / 2;
-      const mz = (ctx.heroZ + ctx.wardenZ) / 2;
-      this._desAim.set(mx, head.y + 6 + k * 4, mz);
+      this._desPos.set(head.x + dirX * dist, head.y + 2.2, head.z + dirZ * dist);
+      // crane the aim from the hero UP the warden's body toward its descending
+      // mask/hand — the giant fills the frame as it comes down (DESIGN §4.6)
+      const ax = ctx.wardenX + (ctx.heroX - ctx.wardenX) * 0.35;
+      const az = ctx.wardenZ + (ctx.heroZ - ctx.wardenZ) * 0.35;
+      this._desAim.set(ax, head.y + 3 + k * 24, az);
+      const fov = 70;
+      if (Math.abs(camera.fov - fov) > 0.01) {
+        camera.fov = fov;
+        camera.updateProjectionMatrix();
+      }
       const a = 1 - Math.exp(-dt / CAM.tauPosSnap);
       this.pos.lerp(this._desPos, a);
       this.aim.lerp(this._desAim, a);

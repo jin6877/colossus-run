@@ -32,8 +32,8 @@ type RWorld = InstanceType<typeof RAPIER.World>;
 export type GameState = 'title' | 'running' | 'dying' | 'gameover';
 
 const R_DESTROY = 42; // warden path-clear radius (PROJECT.md §5)
-const START_GAP = 40; // warden starts this far behind
-const TITLE_GAP = 30;
+const START_GAP = 26; // warden starts this far behind (looming, then eases to G*)
+const TITLE_GAP = 22;
 const HOT = 0x7c2408; // warm ember hot-color on fresh debris
 const DEATH_TIME = 2.4; // seconds of death-cam before the result card
 
@@ -81,6 +81,7 @@ export class Engine {
 
   ready = false;
   seed = 0;
+  debugLoom = false; // verify-only: pin the warden at near-framing distance
   onStateChange: ((s: GameState) => void) | null = null;
 
   constructor(quality: QualityPreset) {
@@ -168,6 +169,11 @@ export class Engine {
     return this.state;
   }
 
+  /** Force a catch (verification harness only — deterministic death-cam). */
+  forceDeath() {
+    this.triggerDeath('caught');
+  }
+
   getHud() {
     return {
       state: this.state,
@@ -187,6 +193,17 @@ export class Engine {
       reason: this.caughtReason,
       newBest: this.distance >= this.bestDistance,
     };
+  }
+
+  /** Deterministic fingerprint of the course geometry (seed reproducibility). */
+  courseFingerprint(): number {
+    if (!this.course) return 0;
+    let acc = 0;
+    for (let s = 0; s <= 2000; s += 50) {
+      this.course.frame(s, this._fr);
+      acc += this._fr.x * 1.7 + this._fr.z * 2.3 + this._fr.halfWidth * 5 + this._fr.heading * 11;
+    }
+    return Math.round(acc * 1000) / 1000;
   }
 
   getStats() {
@@ -277,6 +294,9 @@ export class Engine {
         this.fractureAcc -= 1;
         this.fractureAround(wf.x, wf.z, 0);
       }
+
+      // verify-only: pin the warden at near-framing distance to inspect looming
+      if (this.debugLoom) this.warden.s = this.hero.s - 9;
 
       // obstacle resolution + catch check
       this.resolveObstacles();
@@ -451,6 +471,8 @@ export class Engine {
 
     // warden
     const ww = course.worldAt(this.warden.s, this.warden.lateral, this._fr2);
+    const dyingFrame = this.state === 'dying' || this.state === 'gameover';
+    const reach = dyingFrame ? clamp01(this.deathElapsed / 0.9) : 0;
     applyWardenPose(
       this.wardenRig,
       this.warden,
@@ -461,23 +483,43 @@ export class Engine {
       headY - 1.2,
       hw.z,
       this.simTime,
+      reach,
     );
 
-    // chase camera
-    this.chase.update(camera, dt, {
-      frame: this._fr,
-      heroX: hw.x,
-      heroZ: hw.z,
-      heroY: headY,
-      steer: this.hero.steerVis,
-      speed: this.hero.speed,
-      proximity: this.proximity,
-      wardenX: ww.x,
-      wardenZ: ww.z,
-      dying: this.state === 'dying',
-      deathT: this.deathElapsed,
-      shake: this.shake,
-    });
+    // camera: cinematic preview at the title, chase rig otherwise
+    if (this.state === 'title') {
+      this.titleCam(camera, hw.x, hw.z, ww.x, ww.z);
+    } else {
+      this.chase.update(camera, dt, {
+        frame: this._fr,
+        heroX: hw.x,
+        heroZ: hw.z,
+        heroY: headY,
+        steer: this.hero.steerVis,
+        speed: this.hero.speed,
+        proximity: this.proximity,
+        wardenX: ww.x,
+        wardenZ: ww.z,
+        dying: dyingFrame,
+        deathT: this.deathElapsed,
+        shake: this.shake,
+      });
+    }
+  }
+
+  /** Slow cinematic title preview framing the looming warden (DESIGN §7.4). */
+  private titleCam(camera: PerspectiveCamera, hx: number, hz: number, wx: number, wz: number) {
+    const t = this.simTime;
+    const fr = this._fr; // hero frame (filled by worldAt(hero) above)
+    const side = Math.sin(t * 0.12) * 10;
+    // pulled back + higher so the whole 50m silhouette (incl. the watching head)
+    // reads through the dust, with the small hero in the foreground
+    camera.position.set(hx + fr.tx * 26 + fr.rx * side, 17, hz + fr.tz * 26 + fr.rz * side);
+    camera.lookAt(wx, 30, wz);
+    if (Math.abs(camera.fov - 50) > 0.01) {
+      camera.fov = 50;
+      camera.updateProjectionMatrix();
+    }
   }
 
   private chase = new ChaseCamera();

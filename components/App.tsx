@@ -135,11 +135,16 @@ export default function App() {
       state: () => engineRef.current?.getState(),
       result: () => engineRef.current?.getResult(),
       seed: () => engineRef.current?.seed,
+      fingerprint: () => engineRef.current?.courseFingerprint(),
       begin: () => engineRef.current?.beginRun(),
       steer: (v: number) => engineRef.current?.input.setSteer(v),
       jump: () => engineRef.current?.input.queueJump(),
       dash: () => engineRef.current?.input.queueDash(),
       slide: (on: boolean) => engineRef.current?.input.setSlide(on),
+      kill: () => engineRef.current?.forceDeath(),
+      loom: (on: boolean) => {
+        if (engineRef.current) engineRef.current.debugLoom = on;
+      },
     };
     return () => {
       if (w.__cr) delete w.__cr;

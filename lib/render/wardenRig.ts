@@ -18,16 +18,11 @@ import {
   MeshStandardMaterial,
   OctahedronGeometry,
 } from 'three';
-import {
-  WARDEN_CERAMIC,
-  WARDEN_COLD,
-  WARDEN_CORE,
-  WARDEN_HEIGHT,
-} from '../constants';
+import { WARDEN_CERAMIC, WARDEN_COLD, WARDEN_CORE } from '../constants';
 import type { Warden } from '../warden';
 import type { Frame } from '../course';
 
-const H = WARDEN_HEIGHT; // 50m
+// H ≈ 50m total (DESIGN §2.1); the segment lengths below sum to that.
 const L_THIGH = 12;
 const L_SHIN = 11;
 const PELVIS_Y = L_THIGH + L_SHIN; // hip height ~23
@@ -100,7 +95,7 @@ export function buildWardenRig(boneQuality: 'full' | 'lite' = 'full'): WardenPar
     metalness: 0,
     flatShading: true,
     emissive: new Color(WARDEN_COLD),
-    emissiveIntensity: 0.35, // faint whole-body bleed from the cracks
+    emissiveIntensity: 0.18, // faint whole-body bleed from the cracks (seams do the glow)
   });
   const core = new MeshStandardMaterial({
     color: new Color(WARDEN_CERAMIC),
@@ -268,8 +263,9 @@ export function applyWardenPose(
   heroY: number,
   heroZ: number,
   t: number,
+  reach = 0,
 ) {
-  const { group, bob, headYaw, headPitch, legL, legR, armLower, shoulderL, shoulderR } = parts;
+  const { group, bob, body, headYaw, headPitch, legL, legR, armLower, shoulderL, shoulderR } = parts;
   const ry = facingY(frame.tx, frame.tz);
   group.position.set(worldX, 0, worldZ);
   group.rotation.y = ry;
@@ -316,10 +312,20 @@ export function applyWardenPose(
   pitch = Math.max(-0.2, Math.min(1.2, pitch));
   headPitch.rotation.x += (pitch - headPitch.rotation.x) * 0.2;
 
+  // ---- death reach: stoop down + slam an arm overhead toward the hero ----
+  if (reach > 0) {
+    body.rotation.x = STOOP + reach * 0.55;
+    bob.position.y = -reach * 3;
+    // right arm cranes up then comes down (mask/hand descend, DESIGN §4.6)
+    shoulderR.rotation.x = -1.2 + reach * 2.6;
+    armLower.R.rotation.x = 0.3 + reach * 1.1;
+    shoulderL.rotation.x = -0.4 - reach * 0.4;
+  }
+
   // ---- cold glow: slow pulse (0.8↔1.6 @0.2Hz) + footfall/telegraph surge ----
   const pulse = 1.2 + 0.4 * Math.sin(t * Math.PI * 2 * 0.2);
   const surge = warden.emissiveSurge * 1.8;
-  parts.ceramic.emissiveIntensity = 0.3 + surge * 0.25;
+  parts.ceramic.emissiveIntensity = 0.16 + surge * 0.2;
   parts.core.emissiveIntensity = pulse + 0.6 + surge;
   parts.mask.emissiveIntensity = 1.4 + warden.attention * 1.0 + surge;
 }

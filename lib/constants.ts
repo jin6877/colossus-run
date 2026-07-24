@@ -104,15 +104,18 @@ export const CAM = {
   farGap: 55,
   nearGap: 8,
   catchGap: 3,
-  // rig interpolation endpoints (PROJECT.md §7.1–7.2)
+  // rig interpolation endpoints (PROJECT.md §7.1–7.2). distanceBackNear must
+  // exceed the near gap so the camera pulls BACK PAST the warden — otherwise the
+  // 50m creature sits at the camera and can't be framed (DESIGN §4.5 목표 우선;
+  // §7.2 seeds 11m, we widen to guarantee the looming top-third framing).
   distanceBackFar: 6.5,
-  distanceBackNear: 11,
+  distanceBackNear: 16,
   heightFar: 3.0,
-  heightNear: 5.5,
+  heightNear: 7,
   pitchFar: (-7 * Math.PI) / 180,
-  pitchNear: (5 * Math.PI) / 180,
+  pitchNear: (13 * Math.PI) / 180,
   fovFar: 60,
-  fovNear: 76,
+  fovNear: 78,
   shoulder: 0.9,
   headY: 1.7,
   tauPos: 0.14,

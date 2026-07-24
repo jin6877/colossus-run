@@ -9,9 +9,9 @@ const V0 = 14; // starting forward speed (m/s)
 const VMAX = 34; // top speed (m/s)
 const V_K = 0.008; // ramp slope (reaches vmax ~2.5km in)
 
-const GAP_START = 55; // far target gap (m)
-const GAP_END = 28; // deep target gap (m)
-const GAP_K = 0.011; // shrink slope
+const GAP_START = 40; // far target gap (m) — warden present but survivable early
+const GAP_END = 22; // deep target gap (m) — the world closes in
+const GAP_K = 0.012; // shrink slope
 
 /** Forward speed the game feeds the hero at a given survived distance. */
 export function speedAt(dist: number): number {
