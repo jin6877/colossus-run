@@ -5,10 +5,11 @@
  * fixed-step hero/warden sim, chunk streaming, warden-driven destruction, debris,
  * fx, camera — happens here and never triggers a React re-render.
  *
- * CORE (user override): a ~4m AGILE PREDATOR chases on the hero's heels under a
- * 3/4 over-shoulder camera that shows the road AHEAD. Two tensions run at once:
+ * CORE (user override v3): a ~4m AGILE ORGANIC PREDATOR chases on the hero's heels
+ * under a GIANT-FRONTAL reversed camera — the hero runs TOWARD the lens and the
+ * creature bears down from the front. Two tensions run at once:
  *   1. dodge the FORWARD obstacles (cars, debris, gaps, barriers) — read by form
- *      + natural shadow, no color paint;
+ *      + natural shadow, no color paint — which appear in the lower foreground;
  *   2. juke the warden's CLAW SWIPE — it locks a lane band, telegraphs a ground
  *      rake, then strikes: stand in the band (i.e. run straight) and you die.
  * Missing an obstacle grazes you → the predator closes → the claw lands. Running
@@ -287,8 +288,9 @@ export class Engine {
 
     if (this.state === 'running') {
       this.input.consume(this._input);
-      // 3/4 over-shoulder camera looks forward, so screen-space steering is direct
-      // again (no reversed-cam flip)
+      // GIANT-FRONTAL reversed camera looks BACK at the hero, so world "right" reads
+      // on the LEFT of screen. Flip steer so screen-space left/right stays intuitive.
+      this._input.steer = -this._input.steer;
       this.distance = Math.floor(this.hero.s);
       const base = speedAt(this.distance);
       this.hero.update(dt, this._input, course, base);

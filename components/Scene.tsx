@@ -105,8 +105,8 @@ function SunRig({ engine, quality }: { engine: Engine; quality: QualityPreset })
     const tx = engine.tangent.x;
     const tz = engine.tangent.z;
     // low back-light: 30m behind (−T), 12m up, ~22° elevation -> shadows fall
-    // FORWARD (down-course) where the over-shoulder camera can read them. Scaled
-    // down for the ~4m predator (was tuned for a 50m titan's long forward shadow).
+    // FORWARD (down-course), so the predator's long shadow reaches toward the
+    // hero + the giant-frontal camera. Scaled for the ~4m organic predator.
     _p.set(h.x - tx * 30, 12, h.z - tz * 30);
     l.position.copy(_p);
     target.position.set(h.x, 0, h.z);
