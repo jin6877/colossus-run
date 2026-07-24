@@ -409,10 +409,11 @@ export function applyWardenPose(
     shoulderL.rotation.set(-0.5 - reach * 0.5, 0, 0);
   }
 
-  // cold glow: slow pulse (0.8↔1.6 @0.2Hz) + swipe/telegraph surge
-  const pulse = 1.2 + 0.4 * Math.sin(t * Math.PI * 2 * 0.2);
-  const surge = warden.emissiveSurge * 1.8;
-  parts.ceramic.emissiveIntensity = 0.16 + surge * 0.25;
-  parts.core.emissiveIntensity = pulse + 0.6 + surge;
-  parts.mask.emissiveIntensity = 1.4 + warden.attention * 1.0 + surge;
+  // cold glow: slow pulse (0.8↔1.6 @0.2Hz) + swipe/telegraph surge. Kept below a
+  // white-out (DESIGN §8) — bright enough to be the one cold light, not blown.
+  const pulse = 1.0 + 0.3 * Math.sin(t * Math.PI * 2 * 0.2);
+  const surge = warden.emissiveSurge * 1.3;
+  parts.ceramic.emissiveIntensity = 0.14 + surge * 0.2;
+  parts.core.emissiveIntensity = pulse + 0.5 + surge;
+  parts.mask.emissiveIntensity = 1.1 + warden.attention * 0.8 + surge;
 }
