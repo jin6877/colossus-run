@@ -10,7 +10,8 @@
  * and the cold crack glow.
  */
 
-const LOOM_GAP = 7; // the warden hangs this far behind, right overhead
+const LOOM_GAP = 13; // the warden looms this far behind (hero clearly in foreground)
+const STOMP_GAP = 6; // it LUNGES forward to this gap to stomp, then recovers
 const RECOVER = 0.3; // seconds to lift the foot back after a slam
 const SLAM_T = 0.14; // seconds of the foot coming down
 
@@ -78,9 +79,11 @@ export class Warden {
   ) {
     this.slamEvent = false;
 
-    // loom: hang a fixed gap behind, right over the hero, matching speed
-    const targetS = heroS - LOOM_GAP;
-    this.s += (targetS - this.s) * (1 - Math.exp(-dt / 0.28));
+    // loom behind; LUNGE forward while stomping so a foot can reach the hero, then
+    // recover — the giant surging in to slam reads as menace + a fair dodge window
+    const gapNow = this.stomping ? STOMP_GAP : LOOM_GAP;
+    const targetS = heroS - gapNow;
+    this.s += (targetS - this.s) * (1 - Math.exp(-dt / 0.22));
     this.speed += (heroSpeed - this.speed) * (1 - Math.exp(-dt / 0.3));
     this.lateral += (heroLateral - this.lateral) * (1 - Math.exp(-dt / 0.45));
 

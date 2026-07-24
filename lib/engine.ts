@@ -43,7 +43,7 @@ export type GameState = 'title' | 'running' | 'dying' | 'gameover';
 export type DeathReason = 'stomp' | 'shockwave' | 'caught';
 
 const R_DESTROY = 40; // warden path-clear radius (spectacle)
-const START_GAP = 7; // the warden looms this far behind at the start of a run
+const START_GAP = 13; // the warden looms this far behind at the start of a run
 const TITLE_GAP = 22; // pulled back for the title portrait
 const HOT = 0x7c2408; // warm ember hot-color on fresh debris
 const DEATH_TIME = 2.4; // seconds of death-cam before the result card

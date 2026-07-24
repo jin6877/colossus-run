@@ -84,6 +84,7 @@ function SunRig({ engine, quality }: { engine: Engine; quality: QualityPreset })
   const scene = useThree((s) => s.scene);
   const gl = useThree((s) => s.gl);
   const lightRef = useRef<DirectionalLight>(null);
+  const fillRef = useRef<DirectionalLight>(null);
   const target = useMemo(() => new Object3D(), []);
   const _p = useMemo(() => new Vector3(), []);
 
@@ -108,6 +109,10 @@ function SunRig({ engine, quality }: { engine: Engine; quality: QualityPreset })
     l.position.copy(_p);
     target.position.set(h.x, 0, h.z);
     target.updateMatrixWorld();
+    // camera-side fill so the reversed camera doesn't leave the hero a black
+    // silhouette (the key light backlights it now) — weak, cool, no shadow
+    const f = fillRef.current;
+    if (f) f.position.set(h.x + tx * 50, 18, h.z + tz * 50);
   });
 
   return (
@@ -131,6 +136,8 @@ function SunRig({ engine, quality }: { engine: Engine; quality: QualityPreset })
         shadow-camera-top={130}
         shadow-camera-bottom={-70}
       />
+      {/* camera-side fill (hero readability under the reversed camera) */}
+      <directionalLight ref={fillRef} color="#8b93a1" intensity={0.7} target={target} />
     </>
   );
 }
