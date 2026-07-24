@@ -1,46 +1,45 @@
 /**
  * Warden render rig (DESIGN §2) — "a giant wearing a porcelain funeral mask".
- * Assembled from box / capsule / angular segments (no rigged GLTF; PROJECT.md
- * §4.2). H≈50m with DELIBERATELY distorted proportions so it reads as monumental:
- * tiny head, long gaunt torso, unnaturally long arms (knuckle-plant range), long
- * legs on broad flat feet. Two-bone leg IK (hip→knee→foot) drives a slow loping
- * gait; the head look-at ALWAYS turns to the hero (the "intelligence" cue, §2.3);
- * the crack seams glow cold cyan — the one cold light in the world — pulsing
- * slowly and surging on footfalls/telegraphs. flatShading facets hide the joints.
+ * NOT a box: each segment is built from several angular cracked-porcelain PLATES
+ * with cold glowing crack SEAMS between them, on deliberately distorted
+ * proportions so it reads as monumental (DESIGN §2.1): a tiny eyeless mask, a
+ * long gaunt tapering torso, unnaturally long arms with big blunt hands, long
+ * legs on broad flat feet, all stooped forward. Two-bone leg IK (hip→knee→foot)
+ * drives a slow lope; the head look-at ALWAYS turns to the hero (the intelligence
+ * cue, §2.3); crack seams glow cold cyan — the one cold light in the world —
+ * pulsing slowly and surging on footfalls/telegraphs. flatShading hides joints.
  */
 import {
   BoxGeometry,
-  CapsuleGeometry,
   Color,
   ConeGeometry,
   Group,
   Mesh,
   MeshStandardMaterial,
-  OctahedronGeometry,
 } from 'three';
-import { WARDEN_CERAMIC, WARDEN_COLD, WARDEN_CORE } from '../constants';
+import { WARDEN_CERAMIC, WARDEN_COLD, WARDEN_CORE, WARDEN_GROOVE } from '../constants';
 import type { Warden } from '../warden';
 import type { Frame } from '../course';
 
-// H ≈ 50m total (DESIGN §2.1); the segment lengths below sum to that.
+// H ≈ 50m (DESIGN §2.1); segment lengths below sum to ~that.
 const L_THIGH = 12;
 const L_SHIN = 11;
 const PELVIS_Y = L_THIGH + L_SHIN; // hip height ~23
-const LEG_SPREAD = 3.4;
+const LEG_SPREAD = 3.3;
 const STRIDE = 16;
 const LIFT = 3.6;
-const STOOP = 0.3; // ~17° forward stoop (DESIGN §2.1)
+const STOOP = 0.3; // ~17° forward stoop
 
 export interface WardenParts {
   group: Group;
   bob: Group;
-  body: Group; // stooped torso + arms + head
+  body: Group;
   neck: Group;
   headYaw: Group;
   headPitch: Group;
   shoulderL: Group;
   shoulderR: Group;
-  armLower: { L: Group; R: Group }; // forearm pivots
+  armLower: { L: Group; R: Group };
   legL: LegRig;
   legR: LegRig;
   ceramic: MeshStandardMaterial;
@@ -54,56 +53,31 @@ interface LegRig {
   shin: Group;
 }
 
-function ceramicMesh(mat: MeshStandardMaterial, geo: BoxGeometry | CapsuleGeometry | ConeGeometry | OctahedronGeometry): Mesh {
-  const m = new Mesh(geo, mat);
-  m.castShadow = true;
-  return m;
-}
-
-function buildLeg(ceramic: MeshStandardMaterial, core: MeshStandardMaterial, side: number): LegRig {
-  const root = new Group();
-  root.position.set(side * LEG_SPREAD, PELVIS_Y, 0);
-
-  const thigh = new Group();
-  const thighMesh = ceramicMesh(ceramic, new BoxGeometry(2.4, L_THIGH, 2.4));
-  thighMesh.position.y = -L_THIGH / 2;
-  thigh.add(thighMesh);
-  root.add(thigh);
-
-  const shin = new Group();
-  shin.position.y = -L_THIGH;
-  const shinMesh = ceramicMesh(ceramic, new BoxGeometry(1.9, L_SHIN, 1.9));
-  shinMesh.position.y = -L_SHIN / 2;
-  shin.add(shinMesh);
-  // knee seam glow
-  const knee = ceramicMesh(core, new BoxGeometry(2.0, 0.8, 2.0));
-  shin.add(knee);
-  thigh.add(shin);
-
-  // broad flat foot
-  const foot = ceramicMesh(ceramic, new BoxGeometry(3.8, 1.3, 6.2));
-  foot.position.set(0, -L_SHIN + 0.6, -1.4);
-  shin.add(foot);
-
-  return { root, thigh, shin };
-}
-
 export function buildWardenRig(boneQuality: 'full' | 'lite' = 'full'): WardenParts {
+  const full = boneQuality === 'full';
+
   const ceramic = new MeshStandardMaterial({
     color: new Color(WARDEN_CERAMIC),
     roughness: 0.66,
     metalness: 0,
     flatShading: true,
     emissive: new Color(WARDEN_COLD),
-    emissiveIntensity: 0.18, // faint whole-body bleed from the cracks (seams do the glow)
+    emissiveIntensity: 0.16,
+  });
+  // darker facet-groove plates so the porcelain reads as many angular pieces
+  const groove = new MeshStandardMaterial({
+    color: new Color(WARDEN_GROOVE),
+    roughness: 0.7,
+    metalness: 0,
+    flatShading: true,
   });
   const core = new MeshStandardMaterial({
-    color: new Color(WARDEN_CERAMIC),
+    color: new Color(WARDEN_CORE),
     roughness: 0.6,
     metalness: 0,
     flatShading: true,
     emissive: new Color(WARDEN_CORE),
-    emissiveIntensity: 2.0, // chest / seam cores
+    emissiveIntensity: 2.0,
   });
   const mask = new MeshStandardMaterial({
     color: new Color(WARDEN_CERAMIC),
@@ -111,94 +85,202 @@ export function buildWardenRig(boneQuality: 'full' | 'lite' = 'full'): WardenPar
     metalness: 0,
     flatShading: true,
     emissive: new Color(WARDEN_COLD),
-    emissiveIntensity: 1.4, // attention glow ramps this up
+    emissiveIntensity: 1.4,
   });
+
+  const plate = (mat: MeshStandardMaterial, w: number, h: number, d: number) => {
+    const m = new Mesh(new BoxGeometry(w, h, d), mat);
+    m.castShadow = true;
+    return m;
+  };
+  /** A glowing cold crack seam (thin bright strip proud of a plate). */
+  const seam = (len: number, thick = 0.16, mat: MeshStandardMaterial = core) => {
+    const m = new Mesh(new BoxGeometry(thick, len, thick), mat);
+    m.castShadow = false;
+    return m;
+  };
 
   const group = new Group();
   group.name = 'warden';
   const bob = new Group();
   group.add(bob);
 
-  // ---- body (stooped) ----
+  // ============ BODY (stooped): gaunt tapering plates + chest core ============
   const body = new Group();
   body.position.y = PELVIS_Y;
   body.rotation.x = STOOP;
   bob.add(body);
 
-  // pelvis
-  const pelvis = ceramicMesh(ceramic, new BoxGeometry(6, 3.4, 4));
+  const pelvis = plate(ceramic, 6, 3.2, 4);
   body.add(pelvis);
+  const hipL = plate(groove, 2.2, 2.6, 3.6);
+  hipL.position.set(-2.2, -0.2, 0);
+  hipL.rotation.z = 0.18;
+  const hipR = plate(groove, 2.2, 2.6, 3.6);
+  hipR.position.set(2.2, -0.2, 0);
+  hipR.rotation.z = -0.14;
+  body.add(hipL, hipR);
 
-  // lower torso -> upper torso (tapers up = gaunt)
-  const lower = ceramicMesh(ceramic, new BoxGeometry(5, 8, 3.4));
+  const lower = plate(ceramic, 4.8, 8, 3.2);
   lower.position.y = 6;
-  body.add(lower);
-  const chestCore = ceramicMesh(core, new BoxGeometry(3.4, 4.5, 2.6));
-  chestCore.position.y = 9.5;
-  body.add(chestCore);
-  const upper = ceramicMesh(ceramic, new BoxGeometry(3.6, 7, 2.8));
-  upper.position.y = 13.5;
+  const lowerPlate = plate(groove, 3.0, 6.2, 0.5);
+  lowerPlate.position.set(0, 6, 1.7);
+  body.add(lower, lowerPlate);
+
+  const chestCore = plate(core, 2.2, 4.2, 1.6);
+  chestCore.position.set(0, 10, 1.0);
+  const chestL = plate(ceramic, 2.4, 5.5, 2.6);
+  chestL.position.set(-1.7, 10.5, 0);
+  chestL.rotation.z = 0.12;
+  const chestR = plate(ceramic, 2.4, 5.5, 2.6);
+  chestR.position.set(1.7, 10.5, 0);
+  chestR.rotation.z = -0.1;
+  body.add(chestCore, chestL, chestR);
+
+  const upper = plate(ceramic, 3.2, 6, 2.4);
+  upper.position.y = 14.5;
   body.add(upper);
+  const chestSeam = seam(13, 0.22);
+  chestSeam.position.set(0, 9, 1.55);
+  body.add(chestSeam);
+  if (full) {
+    const crackA = seam(4, 0.16);
+    crackA.position.set(-1.4, 7, 1.55);
+    crackA.rotation.z = 0.5;
+    const crackB = seam(3.4, 0.16);
+    crackB.position.set(1.3, 12, 1.4);
+    crackB.rotation.z = -0.7;
+    body.add(crackA, crackB);
+  }
 
-  // shoulders (asymmetric: right rides higher — DESIGN §2.1 의도된 비대칭)
+  // asymmetric shoulders (right rides higher), angular pauldron plates
   const shoulderL = new Group();
-  shoulderL.position.set(-2.6, 16.4, 0);
+  shoulderL.position.set(-2.5, 16.2, 0);
   const shoulderR = new Group();
-  shoulderR.position.set(2.6, 17.0, 0);
+  shoulderR.position.set(2.5, 16.9, 0);
+  const paulL = plate(ceramic, 3.2, 2.6, 3.2);
+  paulL.rotation.z = 0.25;
+  shoulderL.add(paulL);
+  const paulR = plate(ceramic, 3.2, 2.6, 3.2);
+  paulR.rotation.z = -0.3;
+  shoulderR.add(paulR);
 
-  const makeArm = (parent: Group, sign: number) => {
-    const upperArm = ceramicMesh(ceramic, new BoxGeometry(1.8, 13, 1.8));
-    upperArm.position.y = -13 / 2;
-    parent.add(upperArm);
+  const makeArm = (parent: Group) => {
+    const upA = plate(ceramic, 1.9, 8, 1.9);
+    upA.position.y = -4;
+    const upB = plate(groove, 1.6, 6.5, 1.6);
+    upB.position.y = -10;
+    parent.add(upA, upB);
+    const elbow = plate(core, 1.5, 1.0, 1.5);
+    elbow.position.y = -14;
+    parent.add(elbow);
+
     const lowerPivot = new Group();
-    lowerPivot.position.y = -13;
-    const fore = ceramicMesh(ceramic, new BoxGeometry(1.5, 12, 1.5));
-    fore.position.y = -12 / 2;
-    lowerPivot.add(fore);
-    // blunt angular hand (DESIGN §2.1 크고 뭉툭)
-    const hand = ceramicMesh(ceramic, new BoxGeometry(2.8, 3.2, 3.6));
-    hand.position.y = -12 - 1.0;
+    lowerPivot.position.y = -14;
+    const foreA = plate(ceramic, 1.5, 7, 1.5);
+    foreA.position.y = -3.5;
+    const foreB = plate(ceramic, 1.35, 5.5, 1.35);
+    foreB.position.y = -9.5;
+    lowerPivot.add(foreA, foreB);
+    if (full) {
+      const foreSeam = seam(9, 0.14);
+      foreSeam.position.set(0, -6, 0.8);
+      lowerPivot.add(foreSeam);
+    }
+    const hand = plate(ceramic, 2.9, 3.0, 3.6);
+    hand.position.y = -13.5;
     lowerPivot.add(hand);
-    if (boneQuality === 'full') {
-      for (let f = 0; f < 3; f++) {
-        const finger = ceramicMesh(ceramic, new BoxGeometry(0.7, 2.4, 0.7));
-        finger.position.set((f - 1) * 0.9 * sign || (f - 1) * 0.9, -12 - 2.6, 1.2);
-        lowerPivot.add(finger);
-      }
+    const knuckle = plate(groove, 3.0, 1.0, 1.2);
+    knuckle.position.set(0, -12.2, 1.5);
+    lowerPivot.add(knuckle);
+    const nFingers = full ? 3 : 1;
+    for (let f = 0; f < nFingers; f++) {
+      const finger = plate(ceramic, full ? 0.8 : 2.6, 2.6, 0.8);
+      finger.position.set(full ? (f - 1) * 1.0 : 0, -15.4, 1.3);
+      lowerPivot.add(finger);
     }
     parent.add(lowerPivot);
     return lowerPivot;
   };
-  const armLowerL = makeArm(shoulderL, -1);
-  const armLowerR = makeArm(shoulderR, 1);
+  const armLowerL = makeArm(shoulderL);
+  const armLowerR = makeArm(shoulderR);
   body.add(shoulderL, shoulderR);
 
-  // ---- neck + head (small mask; cocked slightly = uncanny) ----
+  // ============ NECK + SMALL EYELESS MASK ============
   const neck = new Group();
-  neck.position.y = 17.2;
-  const neckMesh = ceramicMesh(ceramic, new BoxGeometry(1.2, 3.2, 1.2));
-  neckMesh.position.y = 1.6;
+  neck.position.y = 16.8;
+  const neckMesh = plate(groove, 1.1, 3.4, 1.1);
+  neckMesh.position.y = 1.7;
   neck.add(neckMesh);
+
   const headYaw = new Group();
   headYaw.position.y = 3.6;
   const headPitch = new Group();
-  headPitch.rotation.z = 0.06; // subtle cock
-  // angular funeral mask: an octahedron squashed forward, no eyes
-  const maskMesh = new Mesh(new OctahedronGeometry(1.6, 0), mask);
-  maskMesh.scale.set(1.0, 1.35, 0.85);
+  headPitch.rotation.z = 0.06; // subtle cock (uncanny asymmetry)
+
+  const maskMesh = new Mesh(new ConeGeometry(0.95, 1.9, 5), mask);
+  maskMesh.rotation.x = Math.PI + 0.35; // flat face forward-down (funeral mask)
+  maskMesh.rotation.y = Math.PI / 5;
   maskMesh.castShadow = true;
   headPitch.add(maskMesh);
-  // thin cold seam down the mask
-  const seam = ceramicMesh(core, new BoxGeometry(0.18, 2.6, 0.18));
-  seam.position.z = 1.0;
-  headPitch.add(seam);
+  const brow = plate(ceramic, 1.5, 0.5, 0.7);
+  brow.position.set(0, 0.35, 0.55);
+  brow.rotation.x = -0.3;
+  const jaw = plate(groove, 0.9, 0.7, 0.6);
+  jaw.position.set(0, -0.7, 0.5);
+  headPitch.add(brow, jaw);
+  const maskSeam = new Mesh(new BoxGeometry(0.12, 1.7, 0.12), mask);
+  maskSeam.position.set(0, 0, 0.72);
+  headPitch.add(maskSeam);
   headYaw.add(headPitch);
   neck.add(headYaw);
   body.add(neck);
 
-  // ---- legs (children of bob, NOT the stooped body) ----
-  const legL = buildLeg(ceramic, core, -1);
-  const legR = buildLeg(ceramic, core, 1);
+  // ============ LEGS (children of bob, not the stooped body) ============
+  const buildLeg = (side: number): LegRig => {
+    const root = new Group();
+    root.position.set(side * LEG_SPREAD, PELVIS_Y, 0);
+
+    const thigh = new Group();
+    const thA = plate(ceramic, 2.5, L_THIGH * 0.6, 2.5);
+    thA.position.y = -L_THIGH * 0.3;
+    const thB = plate(groove, 2.1, L_THIGH * 0.5, 2.1);
+    thB.position.y = -L_THIGH * 0.75;
+    thigh.add(thA, thB);
+    if (full) {
+      const thSeam = seam(L_THIGH * 0.8, 0.16);
+      thSeam.position.set(0, -L_THIGH * 0.5, 1.3);
+      thigh.add(thSeam);
+    }
+    root.add(thigh);
+
+    const shin = new Group();
+    shin.position.y = -L_THIGH;
+    const knee = plate(core, 2.0, 0.9, 2.0);
+    shin.add(knee);
+    const shA = plate(ceramic, 1.9, L_SHIN * 0.6, 1.9);
+    shA.position.y = -L_SHIN * 0.35;
+    const shB = plate(groove, 1.6, L_SHIN * 0.5, 1.6);
+    shB.position.y = -L_SHIN * 0.78;
+    shin.add(shA, shB);
+    if (full) {
+      const shSeam = seam(L_SHIN * 0.7, 0.14);
+      shSeam.position.set(0, -L_SHIN * 0.45, 1.0);
+      shin.add(shSeam);
+    }
+    thigh.add(shin);
+
+    const foot = plate(ceramic, 3.8, 1.3, 5.4);
+    foot.position.set(0, -L_SHIN + 0.6, -1.2);
+    shin.add(foot);
+    const toe = plate(groove, 3.6, 0.9, 1.6);
+    toe.position.set(0, -L_SHIN + 0.5, -3.4);
+    shin.add(toe);
+
+    return { root, thigh, shin };
+  };
+  const legL = buildLeg(-1);
+  const legR = buildLeg(1);
   bob.add(legL.root, legR.root);
 
   return {
@@ -225,24 +307,20 @@ function facingY(tx: number, tz: number): number {
 
 /** Gait for one foot: 60% planted stance, 40% lifted swing. */
 function footGait(fp: number): { fo: number; lift: number } {
-  if (fp < 0.6) {
-    // stance: planted, sliding backward relative to the body
-    return { fo: STRIDE / 2 - (fp / 0.6) * STRIDE, lift: 0 };
-  }
+  if (fp < 0.6) return { fo: STRIDE / 2 - (fp / 0.6) * STRIDE, lift: 0 };
   const t = (fp - 0.6) / 0.4;
   return { fo: -STRIDE / 2 + t * STRIDE, lift: Math.sin(t * Math.PI) * LIFT };
 }
 
 /** Solve a 2-bone chain in the sagittal (z,y) plane; knee bends forward (-z). */
 function solveLeg(leg: LegRig, footZ: number, footY: number) {
-  // foot target relative to hip (leg.root is at pelvis)
   const fz = footZ;
   const fy = footY - PELVIS_Y;
   let D = Math.hypot(fz, fy);
   const min = Math.abs(L_THIGH - L_SHIN) + 0.05;
   const max = L_THIGH + L_SHIN - 0.05;
   D = Math.max(min, Math.min(max, D));
-  const gamma = Math.atan2(-fz, -fy); // direction to foot as an X-rotation
+  const gamma = Math.atan2(-fz, -fy);
   const cosA = (L_THIGH * L_THIGH + D * D - L_SHIN * L_SHIN) / (2 * L_THIGH * D);
   const A = Math.acos(Math.max(-1, Math.min(1, cosA)));
   const aThigh = gamma - A;
@@ -270,59 +348,53 @@ export function applyWardenPose(
   group.position.set(worldX, 0, worldZ);
   group.rotation.y = ry;
 
-  // ---- legs: alternate gait, IK to ground ----
   const gaitR = footGait(warden.gaitPhase);
   const gaitL = footGait((warden.gaitPhase + 0.5) % 1);
-  solveLeg(legR, -gaitR.fo, gaitR.lift); // forward is -z
+  solveLeg(legR, -gaitR.fo, gaitR.lift);
   solveLeg(legL, -gaitL.fo, gaitL.lift);
 
-  // ---- body bob + sway synced to gait ----
   const gp = warden.gaitPhase * Math.PI * 2;
-  bob.position.y = Math.sin(gp * 2) * 0.6 - 0.6; // drop as feet plant
-  parts.body.rotation.z = Math.sin(gp) * 0.03; // spine sway
+  bob.position.y = Math.sin(gp * 2) * 0.6 - 0.6;
+  body.rotation.z = Math.sin(gp) * 0.03;
 
-  // ---- arms: loping counter-swing + lunge telegraph ----
   const swing = Math.sin(gp) * 0.5;
   shoulderR.rotation.x = swing;
   shoulderL.rotation.x = -swing;
   armLower.R.rotation.x = 0.4 + Math.max(0, Math.sin(gp)) * 0.5;
   armLower.L.rotation.x = 0.4 + Math.max(0, -Math.sin(gp)) * 0.5;
   if (warden.lungeT > 0) {
-    // windup (pull the right arm/shoulder back) then sweep forward
     const w = warden.lungeT / 0.9;
-    const strike = 1 - w; // 0 windup -> 1 strike
+    const strike = 1 - w;
     shoulderR.rotation.x = -1.1 * w + 1.4 * strike * strike;
     armLower.R.rotation.x = 0.2 + 1.2 * strike;
   }
 
-  // ---- head look-at hero (always) ----
+  // head look-at hero (always)
   const dx = heroX - worldX;
   const dz = heroZ - worldZ;
   const cos = Math.cos(ry);
   const sin = Math.sin(ry);
-  // rotate (dx,dz) by -ry into warden-local
   const lx = dx * cos + dz * sin;
   const lz = -dx * sin + dz * cos;
-  let yaw = Math.atan2(-lx, -lz); // local forward is -Z
+  let yaw = Math.atan2(-lx, -lz);
   yaw = Math.max(-1.4, Math.min(1.4, yaw));
   headYaw.rotation.y += (yaw - headYaw.rotation.y) * 0.2;
   const horiz = Math.hypot(lx, lz);
-  const headWorldY = PELVIS_Y + 20.8; // approx head height in world
-  let pitch = Math.atan2(headWorldY - heroY, horiz); // look down toward the hero
+  const headWorldY = PELVIS_Y + 20.4;
+  let pitch = Math.atan2(headWorldY - heroY, horiz);
   pitch = Math.max(-0.2, Math.min(1.2, pitch));
   headPitch.rotation.x += (pitch - headPitch.rotation.x) * 0.2;
 
-  // ---- death reach: stoop down + slam an arm overhead toward the hero ----
+  // death reach: stoop down + slam an arm overhead toward the hero
   if (reach > 0) {
     body.rotation.x = STOOP + reach * 0.55;
     bob.position.y = -reach * 3;
-    // right arm cranes up then comes down (mask/hand descend, DESIGN §4.6)
     shoulderR.rotation.x = -1.2 + reach * 2.6;
     armLower.R.rotation.x = 0.3 + reach * 1.1;
     shoulderL.rotation.x = -0.4 - reach * 0.4;
   }
 
-  // ---- cold glow: slow pulse (0.8↔1.6 @0.2Hz) + footfall/telegraph surge ----
+  // cold glow: slow pulse (0.8↔1.6 @0.2Hz) + footfall/telegraph surge
   const pulse = 1.2 + 0.4 * Math.sin(t * Math.PI * 2 * 0.2);
   const surge = warden.emissiveSurge * 1.8;
   parts.ceramic.emissiveIntensity = 0.16 + surge * 0.2;
@@ -340,9 +412,8 @@ export function wardenFootWorld(
 ): [number, number, number] {
   const fp = side === 'R' ? warden.gaitPhase : (warden.gaitPhase + 0.5) % 1;
   const g = footGait(fp);
-  const localZ = -g.fo; // forward is -z
+  const localZ = -g.fo;
   const localX = (side === 'R' ? 1 : -1) * LEG_SPREAD;
-  // rotate local (localX, localZ) by facing into world
   const ry = facingY(frame.tx, frame.tz);
   const cos = Math.cos(ry);
   const sin = Math.sin(ry);
