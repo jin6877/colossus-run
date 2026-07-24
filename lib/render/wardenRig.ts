@@ -301,6 +301,13 @@ export function buildWardenRig(boneQuality: 'full' | 'lite' = 'full'): WardenPar
   };
 }
 
+export interface StompPose {
+  leg: 'L' | 'R';
+  rootX: number; // leg-root lateral offset (local right) so the foot lands on target
+  footZ: number; // local forward reach (forward is -Z)
+  footY: number; // foot height target (raised during windup, 0 at slam)
+}
+
 function facingY(tx: number, tz: number): number {
   return Math.atan2(-tx, -tz);
 }
@@ -342,16 +349,28 @@ export function applyWardenPose(
   heroZ: number,
   t: number,
   reach = 0,
+  stomp: StompPose | null = null,
 ) {
   const { group, bob, body, headYaw, headPitch, legL, legR, armLower, shoulderL, shoulderR } = parts;
   const ry = facingY(frame.tx, frame.tz);
   group.position.set(worldX, 0, worldZ);
   group.rotation.y = ry;
 
+  // restore leg roots toward their default spread (a stomp pulls one aside)
+  legL.root.position.x += (-LEG_SPREAD - legL.root.position.x) * 0.3;
+  legR.root.position.x += (LEG_SPREAD - legR.root.position.x) * 0.3;
+
   const gaitR = footGait(warden.gaitPhase);
   const gaitL = footGait((warden.gaitPhase + 0.5) % 1);
   solveLeg(legR, -gaitR.fo, gaitR.lift);
   solveLeg(legL, -gaitL.fo, gaitL.lift);
+
+  // stomp override: swing the stomping leg to the aimed lane + raise/slam it
+  if (stomp) {
+    const leg = stomp.leg === 'R' ? legR : legL;
+    leg.root.position.x += (stomp.rootX - leg.root.position.x) * 0.45;
+    solveLeg(leg, stomp.footZ, stomp.footY);
+  }
 
   const gp = warden.gaitPhase * Math.PI * 2;
   bob.position.y = Math.sin(gp * 2) * 0.6 - 0.6;

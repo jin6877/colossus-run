@@ -76,6 +76,10 @@ export class Hero {
   get dashing(): boolean {
     return this.dashT > 0;
   }
+  /** Current lateral velocity (m/s, + = right) — for the warden's predictive aim. */
+  get lateralVelocity(): number {
+    return this.lateralVel;
+  }
   /** Dash cooldown as a 0..1 fill (for the HUD radial). */
   get dashReady(): number {
     return this.dashCd <= 0 ? 1 : 1 - this.dashCd / DASH_CD;

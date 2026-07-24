@@ -64,10 +64,6 @@ export const TRUNK_COLOR = 0x5a4a3a;
 // ---- Vehicles (dead grays only, DESIGN §3.2) ----
 export const VEHICLE_COLORS = [0x6e6e6c, 0x55585c, 0x3a3c3e];
 
-// ---- Obstacle danger telegraphs (readability — warm=danger, DESIGN §1 축1) ----
-export const HAZARD_RED = 0xc4402e; // "go around / blocked" zones (steer/block/gap)
-export const HAZARD_AMBER = 0xd98b3a; // "time your action" zones (jump / slide)
-
 // ---- FX tones ----
 export const SHOCK_RING = 0xf5ead8; // warm-dust white (no sci-fi cyan)
 export const FOOTFALL_DUST = 0x8a7e6c; // warm dust puff

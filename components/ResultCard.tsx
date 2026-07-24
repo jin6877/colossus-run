@@ -9,18 +9,20 @@
  */
 import { seedCode } from '@/lib/share';
 
+export type DeathReason = 'stomp' | 'shockwave' | 'caught';
+
 export interface ResultData {
   distance: number;
   best: number;
   seed: number;
-  reason: 'caught' | 'block' | 'gap';
+  reason: DeathReason;
   newBest: boolean;
 }
 
-const REASON_COPY: Record<ResultData['reason'], string> = {
+const REASON_COPY: Record<DeathReason, string> = {
+  stomp: '파수꾼의 발에 짓밟혔다.',
+  shockwave: '충격파에 휩쓸렸다.',
   caught: '파수꾼에게 붙잡혔다.',
-  block: '잔해에 부딪혀 멈췄다.',
-  gap: '갈라진 도로 아래로 떨어졌다.',
 };
 
 export default function ResultCard({

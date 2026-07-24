@@ -81,7 +81,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let maxDebris = 0;
   let maxRubble = 0;
   let sawRunning = false;
+  let sawStomp = false;
   let ranShot = false;
+  let dyingSeen = false;
+  let overSeen = false;
+  let deathProx = 0;
   // survive a while with a serpentine steer + periodic jump/slide/dash
   for (let i = 0; i < 26; i++) {
     const phase = i * 0.5;
@@ -95,6 +99,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await sleep(450);
     const s = await page.evaluate(() => window.__cr.stats());
     if (s.state === 'running') sawRunning = true;
+    if (s.stomping) sawStomp = true;
+    if (s.state === 'dying' && !dyingSeen) {
+      dyingSeen = true;
+      deathProx = s.proximity;
+      await page.screenshot({ path: path.join(OUT, 'cr-death.png') });
+    }
+    if (s.state === 'gameover') overSeen = true;
     maxDist = Math.max(maxDist, s.distance);
     maxProx = Math.max(maxProx, s.proximity);
     maxDebris = Math.max(maxDebris, s.debris);
@@ -106,32 +117,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (s.state !== 'running') break;
   }
   console.log(
-    `      progression: maxDist=${maxDist} maxProx=${maxProx.toFixed(2)} debris=${maxDebris} rubble=${maxRubble}`,
+    `      progression: maxDist=${maxDist} maxProx=${maxProx.toFixed(2)} debris=${maxDebris} rubble=${maxRubble} stomp=${sawStomp}`,
   );
   ok('run entered running state', sawRunning);
   ok('hero made forward progress (distance > 0)', maxDist > 0, `maxDist=${maxDist}`);
   ok('warden fractured the city (debris or rubble appeared)', maxDebris + maxRubble > 0, `debris=${maxDebris} rubble=${maxRubble}`);
+  ok('warden foot-stomp hazard fires (telegraph active)', sawStomp, `stomp=${sawStomp}`);
 
-  // ---------- Phase C: near-framing, then catch -> death-cam -> result ----------
+  // ---------- Phase C: looming shot, then death-cam -> result ----------
   await page.evaluate(() => window.__cr.steer(0));
   await page.evaluate(() => window.__cr.slide(false));
-  let dyingSeen = false;
-  let overSeen = false;
-  let deathProx = 0;
 
-  // near-framing inspection (while still alive): pin the warden at near distance
-  // so the camera pulls back + tilts up and the warden looms into the top of the
-  // frame (DESIGN §4.5). This is the "the monster is right behind you" shot.
+  // reversed-camera looming shot: the warden fills the frame by default now, so
+  // just grab a running frame (watch a stomp telegraph if we catch one)
   const stC = await page.evaluate(() => window.__cr.stats());
   if (stC.state === 'running') {
-    await page.evaluate(() => window.__cr.loom(true));
-    await sleep(1500);
-    const sl = await page.evaluate(() => window.__cr.stats());
-    maxProx = Math.max(maxProx, sl.proximity);
-    await page.screenshot({ path: path.join(OUT, 'cr-proximity.png') });
-    await page.evaluate(() => window.__cr.loom(false));
-    if (sl.state === 'dying') dyingSeen = true;
-    if (sl.state === 'gameover') overSeen = true;
+    for (let j = 0; j < 6; j++) {
+      await sleep(250);
+      const sj = await page.evaluate(() => window.__cr.stats());
+      maxProx = Math.max(maxProx, sj.proximity);
+      if (sj.stomping || j === 5) {
+        await page.screenshot({ path: path.join(OUT, 'cr-proximity.png') });
+        break;
+      }
+      if (sj.state !== 'running') {
+        if (sj.state === 'dying') dyingSeen = true;
+        if (sj.state === 'gameover') overSeen = true;
+        break;
+      }
+    }
   }
 
   // deterministically trigger the catch, so the death-cam + result card are
@@ -152,7 +166,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(600);
   const result = await page.evaluate(() => window.__cr.result());
   console.log('      result:', JSON.stringify(result), 'maxProx=', maxProx.toFixed(2));
-  ok('near-proximity framing reached (p>0.8)', maxProx > 0.8, `maxProx=${maxProx.toFixed(2)}`);
+  ok('slam-telegraph threat registered (proximity rose)', maxProx > 0.25, `maxProx=${maxProx.toFixed(2)}`);
   ok('death-cam triggered (dying state)', dyingSeen, `proxAtDeath=${deathProx.toFixed(2)}`);
   ok('reached game over + result card', overSeen && result && result.distance >= 0, `dist=${result && result.distance}`);
   // the result card is a DOM overlay

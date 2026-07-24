@@ -142,9 +142,6 @@ export default function App() {
       dash: () => engineRef.current?.input.queueDash(),
       slide: (on: boolean) => engineRef.current?.input.setSlide(on),
       kill: () => engineRef.current?.forceDeath(),
-      loom: (on: boolean) => {
-        if (engineRef.current) engineRef.current.debugLoom = on;
-      },
     };
     return () => {
       if (w.__cr) delete w.__cr;

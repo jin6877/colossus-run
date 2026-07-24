@@ -1,12 +1,11 @@
 /**
- * Chase camera (PROJECT.md §7, DESIGN §4) — the game's signature and the answer
- * to the "how do you show the monster behind you" problem. A custom rig (NOT
- * OrbitControls): behind the hero, looking FORWARD. As the warden closes, the
- * proximity p interpolates the rig so the camera pulls back and tilts UP — the
- * warden rises into the top third of the frame — while shake / vignette / the
- * forward-cast shadow do the rest, so the player never needs to look back.
- * Framerate-independent exponential smoothing (a = 1 - exp(-dt/τ)) kills jitter;
- * death-cam swings to a 3/4 rear angle as the hand comes down.
+ * Chase camera — REVERSED (user override of the rear-cam design). The camera now
+ * sits AHEAD of the fleeing hero and looks BACK + UP, so the warden fills the
+ * frame, huge and overwhelming, looming over the hero who runs toward us. This
+ * makes the giant the star and its stomping feet fully readable (the new core).
+ * Left/right input is flipped by the engine so screen-space steering stays
+ * intuitive. Framerate-independent exponential smoothing kills jitter; the
+ * death-cam cranes UP the colossus as the foot/hand comes down.
  */
 import { PerspectiveCamera, Vector3, MathUtils } from 'three';
 import { CAM } from './constants';
@@ -19,9 +18,9 @@ export interface ChaseContext {
   heroX: number;
   heroZ: number;
   heroY: number; // head height incl. jump
-  steer: number; // smoothed steer for look-lead
+  steer: number; // smoothed steer (screen-space) for look-lead
   speed: number;
-  proximity: number; // p in [0,1]
+  proximity: number; // 0..1 threat intensity (drives a little punch-in)
   wardenX: number;
   wardenZ: number;
   dying: boolean;
@@ -29,9 +28,11 @@ export interface ChaseContext {
   shake: CameraShake;
 }
 
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
+const FRONT_DIST = 15; // camera this far AHEAD of the fleeing hero (down-course)
+const CAM_HEIGHT = 7; // up high enough to see the hero + landing ground + giant
+const SHOULDER = 1.3; // hero slightly off-centre
+const LOOK_UP = 8; // aim a touch above camera so the giant fills the upper frame
+const AIM_BACK = 5; // pull the aim back toward the giant (behind the hero)
 
 export class ChaseCamera {
   private pos = new Vector3();
@@ -52,27 +53,21 @@ export class ChaseCamera {
     const tz = frame.tz;
     const rx = frame.rx;
     const rz = frame.rz;
-
     const head = this._tmp.set(ctx.heroX, ctx.heroY, ctx.heroZ);
 
     if (!ctx.dying) {
-      // ---- rig params interpolated by proximity ----
-      const back = lerp(CAM.distanceBackFar, CAM.distanceBackNear, p);
-      const height = lerp(CAM.heightFar, CAM.heightNear, p);
-      const pitch = lerp(CAM.pitchFar, CAM.pitchNear, p);
-
-      // desired position: behind the hero, up, shouldered to one side
+      // camera AHEAD of the hero (+T), up, shouldered — looking back at the giant
       this._desPos.set(
-        head.x - tx * back + rx * CAM.shoulder,
-        head.y + height,
-        head.z - tz * back + rz * CAM.shoulder,
+        head.x + tx * FRONT_DIST + rx * SHOULDER,
+        head.y + CAM_HEIGHT,
+        head.z + tz * FRONT_DIST + rz * SHOULDER,
       );
-
-      // aim point: ahead of the hero, lifted, with steer lead
+      // aim above + behind the hero (−T) so the looming warden centres in-frame;
+      // steer lead is screen-space (engine already flipped input)
       this._desAim.set(
-        head.x + tx * 4 + rx * ctx.steer * 1.5,
-        head.y + 0.2,
-        head.z + tz * 4 + rz * ctx.steer * 1.5,
+        head.x - tx * AIM_BACK + rx * ctx.steer * 1.4,
+        head.y + LOOK_UP + p * 2,
+        head.z - tz * AIM_BACK + rz * ctx.steer * 1.4,
       );
 
       if (!this.inited) {
@@ -80,49 +75,29 @@ export class ChaseCamera {
         this.aim.copy(this._desAim);
         this.inited = true;
       }
-      // extreme proximity pull-back snaps faster (DESIGN §7.4)
-      const tauPos = p > 0.85 ? CAM.tauPosSnap : CAM.tauPos;
-      const ap = 1 - Math.exp(-dt / tauPos);
+      const ap = 1 - Math.exp(-dt / CAM.tauPos);
       const ar = 1 - Math.exp(-dt / CAM.tauRot);
       this.pos.lerp(this._desPos, ap);
       this.aim.lerp(this._desAim, ar);
-
       camera.position.copy(this.pos);
+      camera.lookAt(this.aim);
 
-      // build a forward dir then apply pitch about the right axis (tilt up at near)
-      const dir = this._off.copy(this.aim).sub(this.pos).normalize();
-      // rotate dir about the right axis (rx,0,rz) by `pitch`
-      applyPitch(dir, rx, rz, pitch);
-      camera.lookAt(this.pos.x + dir.x, this.pos.y + dir.y, this.pos.z + dir.z);
-
-      // ---- fov: base interp + speed ramp (DESIGN §7.1) ----
-      const speedK = MathUtils.clamp(
-        (ctx.speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN),
-        0,
-        1,
-      );
-      const fov = lerp(CAM.fovFar, CAM.fovNear, p) + speedK * 8;
+      // fov: base + speed ramp (speed sense) + a slight punch-in on threat
+      const speedK = MathUtils.clamp((ctx.speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN), 0, 1);
+      const fov = 64 + speedK * 6 - p * 4;
       if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = fov;
         camera.updateProjectionMatrix();
       }
-
-      // low-frequency dread sway at extreme proximity (DESIGN §4.4)
-      ctx.shake.swayAmp = p > 0.85 ? (p - 0.85) / 0.15 * (0.4 * Math.PI / 180) : 0;
+      ctx.shake.swayAmp = p > 0.6 ? (p - 0.6) / 0.4 * (0.5 * Math.PI / 180) : 0;
     } else {
-      // ---- death-cam: 3/4 rear angle, low, craning UP the towering colossus ----
+      // death-cam: low, beside the hero, craning UP the colossus as it comes down
       const k = MathUtils.clamp(ctx.deathT / 0.9, 0, 1);
-      const ang = 2.4; // ~137° behind, to the side
-      const dist = 13;
-      const dirX = Math.sin(ang) * rx + Math.cos(ang) * -tx;
-      const dirZ = Math.sin(ang) * rz + Math.cos(ang) * -tz;
-      this._desPos.set(head.x + dirX * dist, head.y + 2.2, head.z + dirZ * dist);
-      // crane the aim from the hero UP the warden's body toward its descending
-      // mask/hand — the giant fills the frame as it comes down (DESIGN §4.6)
-      const ax = ctx.wardenX + (ctx.heroX - ctx.wardenX) * 0.35;
-      const az = ctx.wardenZ + (ctx.heroZ - ctx.wardenZ) * 0.35;
-      this._desAim.set(ax, head.y + 3 + k * 24, az);
-      const fov = 70;
+      this._desPos.set(head.x + rx * 5 + tx * 3, head.y + 1.6, head.z + rz * 5 + tz * 3);
+      const ax = ctx.wardenX + (ctx.heroX - ctx.wardenX) * 0.4;
+      const az = ctx.wardenZ + (ctx.heroZ - ctx.wardenZ) * 0.4;
+      this._desAim.set(ax, head.y + 4 + k * 26, az);
+      const fov = 74;
       if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = fov;
         camera.updateProjectionMatrix();
@@ -135,25 +110,7 @@ export class ChaseCamera {
       ctx.shake.swayAmp = 0;
     }
 
-    // shake offset added last (rides on the smoothed rig, DESIGN §4.4)
+    // shake offset added last (rides on the smoothed rig)
     ctx.shake.apply(camera, dt, this._off);
   }
-}
-
-/** Rotate a unit direction about the horizontal right axis k=(rx,0,rz) by `ang`. */
-function applyPitch(dir: Vector3, rx: number, rz: number, ang: number) {
-  // Rodrigues rotation: d' = d cosθ + (k×d) sinθ + k (k·d)(1-cosθ)
-  const c = Math.cos(ang);
-  const s = Math.sin(ang);
-  const dx = dir.x;
-  const dy = dir.y;
-  const dz = dir.z;
-  const kd = rx * dx + rz * dz; // k·d (ky = 0)
-  const crx = -rz * dy; // (k×d).x  = ky*dz - kz*dy = -rz*dy
-  const cry = rz * dx - rx * dz; // (k×d).y  = kz*dx - kx*dz
-  const crz = rx * dy; // (k×d).z  = kx*dy - ky*dx = rx*dy
-  dir.x = dx * c + crx * s + rx * kd * (1 - c);
-  dir.y = dy * c + cry * s;
-  dir.z = dz * c + crz * s + rz * kd * (1 - c);
-  dir.normalize();
 }

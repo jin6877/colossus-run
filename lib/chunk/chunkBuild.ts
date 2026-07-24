@@ -31,15 +31,11 @@ import {
   FAMILY,
   LEAF_COLOR,
   TRUNK_COLOR,
-  VEHICLE_COLORS,
   CHUNK_LEN,
-  HAZARD_RED,
-  HAZARD_AMBER,
   type MaterialFamily,
 } from '../constants';
 import { chunkRng } from '../rng';
 import { Course, makeFrame, type Frame } from '../course';
-import { obstacleMark } from '../render/obstacleMarks';
 import type { QualityPreset } from '../quality';
 import type { Chunk, Obstacle, BuildingInfo } from './chunkTypes';
 
@@ -307,32 +303,9 @@ export function buildChunk(
     group.add(trunks, leaves);
   }
 
-  // ---- curated obstacles (parked vehicles / barriers / signs / gaps) ----
+  // No forward obstacle course in the foot-dodge core (reversed camera can't see
+  // ahead): the hazard is the warden's stomping feet (engine). Empty by design.
   const obstacles: Obstacle[] = [];
-  const obGroup = new Group();
-  group.add(obGroup);
-  let oid = index * 1000;
-  // start chunk (index 0) is kept clear for a moment so the player finds footing
-  const sStart = index === 0 ? s0 + 80 : s0 + 6;
-  let s = sStart;
-  while (s < s1 - 6) {
-    course.frame(s, fr);
-    const hw = fr.halfWidth;
-    const density = 0.55 + Math.min(0.3, s / 12000); // more obstacles deeper
-    if (rng.chance(density)) {
-      const kind = rng.weighted([
-        ['vehicle', 0.4],
-        ['block', 0.18],
-        ['jump', 0.18],
-        ['slide', 0.12],
-        ['gap', 0.12],
-      ] as [Obstacle['kind'], number][]);
-      const lane = rng.range(-hw + 2, hw - 2);
-      const o = buildObstacle(kind, oid++, s, lane, hw, fr, obGroup);
-      if (o) obstacles.push(o);
-    }
-    s += rng.range(14, 30);
-  }
 
   const destroyBuilding = (id: number) => {
     const info = buildings.find((b) => b.id === id);
@@ -364,87 +337,6 @@ function collapse(mesh: Mesh | null | undefined, start: number, count: number, a
   const pos = mesh.geometry.getAttribute('position') as Float32BufferAttribute;
   for (let i = start; i < start + count; i++) pos.setXYZ(i, at.x, at.y, at.z);
   pos.needsUpdate = true;
-}
-
-// ---- obstacle mesh + volume ----
-const _bm = new Matrix4();
-const _bq = new Quaternion();
-const _be = new Euler();
-function buildObstacle(
-  kind: Obstacle['kind'],
-  id: number,
-  s: number,
-  lat: number,
-  hw: number,
-  fr: Frame,
-  parent: Group,
-): Obstacle | null {
-  const x = fr.x + fr.rx * lat;
-  const z = fr.z + fr.rz * lat;
-  const facing = Math.atan2(-fr.tx, -fr.tz);
-  _be.set(0, facing, 0);
-  _bq.setFromEuler(_be);
-  const put = (
-    w: number, h: number, d: number, y: number, color: number, rough = 0.6, metal = 0.1,
-  ) => {
-    const mesh = new Mesh(
-      new BoxGeometry(w, h, d),
-      new MeshStandardMaterial({ color, roughness: rough, metalness: metal, flatShading: true }),
-    );
-    _bm.compose(new Vector3(x, y, z), _bq, new Vector3(1, 1, 1));
-    mesh.applyMatrix4(_bm);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    return mesh;
-  };
-
-  const base: Obstacle = {
-    id, kind, sMin: s - 2, sMax: s + 2, latCenter: lat, latHalf: 2, yClear: 0, resolved: false,
-  };
-
-  let res: Obstacle | null = null;
-  switch (kind) {
-    case 'vehicle': {
-      // a warm rust/danger edge stripe reads it as a hazard, not scenery
-      put(2.2, 1.5, 4.4, 0.75, VEHICLE_COLORS[id % VEHICLE_COLORS.length], 0.5, 0.15);
-      put(1.8, 0.9, 2.2, 1.7, 0x2b2d30, 0.4, 0.2); // cabin
-      put(2.35, 0.28, 4.5, 0.2, HAZARD_RED, 0.6, 0); // low hazard skirt
-      res = { ...base, sMin: s - 2.4, sMax: s + 2.4, latHalf: 1.5, yClear: 1.6 };
-      break;
-    }
-    case 'block': {
-      put(3.0, 2.4, 3.0, 1.2, 0x6b6660, 0.85, 0);
-      put(3.15, 0.32, 3.15, 0.22, HAZARD_RED, 0.6, 0); // hazard base band
-      res = { ...base, latHalf: 1.6, yClear: 2.4 };
-      break;
-    }
-    case 'jump': {
-      // low barrier — hop it (amber = time your action)
-      put(3.6, 0.9, 1.0, 0.45, 0x5a5650, 0.8, 0);
-      put(3.7, 0.22, 1.1, 0.92, HAZARD_AMBER, 0.6, 0); // amber cap
-      res = { ...base, kind: 'jump', latHalf: 1.9, yClear: 1.1 };
-      break;
-    }
-    case 'slide': {
-      // overhead sign / fallen beam — slide under (amber underside)
-      put(5.0, 0.7, 1.0, 2.35, 0x4a4640, 0.7, 0.05);
-      put(5.05, 0.16, 1.05, 1.98, HAZARD_AMBER, 0.6, 0); // amber lower lip (duck cue)
-      put(0.4, 2.6, 0.4, 1.3, 0x3a3833, 0.7, 0.1); // support posts
-      res = { ...base, kind: 'slide', latHalf: 2.4, yClear: 1.9 };
-      break;
-    }
-    case 'gap': {
-      // a hole in the road — the pit decal (obstacleMark) makes it a visible hole;
-      // jump across it. red rim + up-chevrons telegraph it from distance.
-      res = { ...base, kind: 'gap', sMin: s - 3, sMax: s + 3, latHalf: Math.min(hw, 5), yClear: 0 };
-      break;
-    }
-    default:
-      return null;
-  }
-  parent.add(obstacleMark(res.kind, x, z, facing, res.latHalf));
-  return res;
 }
 
 function jitter(rng: { range: (a: number, b: number) => number }, hex: number): number {
