@@ -716,11 +716,11 @@ export class FXManager {
     this.decals = new DecalPool(this.group, 40);
   }
 
-  /** Warden footfall: warm dust puff + dark ground crack with a faint cold rim. */
+  /** Warden claw-rake / footfall: warm dust puff + dark rake mark with a warm rim. */
   footfall(pos: [number, number, number], scale: number, proximity: number) {
     this.dust.fire([pos[0], pos[1] + 0.4, pos[2]], FOOTFALL_DUST, 0.8 + scale * 0.4, 0.8);
     this.decals.place(pos, 5 + scale * 3, GROUND_CRACK, CRACK_COLD_RIM);
-    // a brief faint cold flash — the warden's light bleeds into its own crack
+    // a brief warm dust flash where the claw tears the ground (organic, not cyan)
     this.flashes.fire([pos[0], pos[1] + 0.6, pos[2]], CRACK_COLD_RIM, 4 + scale * 2, 1.2 * (0.4 + proximity));
     this.fire.puffSmoke([pos[0], pos[1] + 0.3, pos[2]], 0.5 + scale * 0.3);
   }

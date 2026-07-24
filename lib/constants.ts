@@ -35,16 +35,21 @@ export const HEMI_INTENSITY = 0.42;
 export const ENV_INTENSITY = 0.35;
 export const TONE_EXPOSURE = 0.92; // slightly under — heavy, headroom for flame/cold glow
 
-// ---- Warden (DESIGN §2.2 / §10) — the only cold cyan in the world ----
-export const WARDEN_CERAMIC = 0x979ba1; // cool ceramic gray (rough 0.66 / metal 0)
-export const WARDEN_GROOVE = 0x585b60; // dark facet groove (never pure black)
-export const WARDEN_SEAM = 0xaecbd6; // crack seam
-export const WARDEN_CORE = 0xcfe6ee; // brightest crack core
-export const WARDEN_COLD = 0xb7d6df; // cold emissive (creature signature — scene only)
-export const WARDEN_RIM_WARM = 0xe4cfa6; // warm back-light rim on the mask
-// ~4m agile predator (user override of the 50m titan). The porcelain-crack /
-// funeral-mask / cold-glow detail is kept but re-proportioned for a fast, lean
-// biped stalker — threat now comes from SPEED + a clawing swipe, not size.
+// ---- Warden (DESIGN §2 override v3) — a LIVING ORGANIC creature, no robot glow ----
+// The porcelain plates / cold cyan seams / eyeless mask are dropped for flesh, hide,
+// sinew, real claws, a gaping toothed maw and watching eyes. Tones stay in the Ashen
+// Dusk world (warm, desaturated) — a warm subsurface lift, NOT fluorescent robot glow.
+export const WARDEN_HIDE = 0x6f5349; // main hide/muscle — weathered warm grey-brown
+export const WARDEN_HIDE_DARK = 0x41332c; // crevice / belly / sinew shadow (never pure black)
+export const WARDEN_SINEW = 0x7a4c40; // exposed muscle / tendon (duller red-brown)
+export const WARDEN_MAW = 0x3a1410; // wet mouth interior / throat / gums (dark visceral red)
+export const WARDEN_MAW_GLOW = 0x86260f; // warm throat under-glow (breathes; flares on a swipe)
+export const WARDEN_EYE = 0xcbbd92; // pale sickly eye — "it sees you"
+export const WARDEN_EYE_GLOW = 0xc0954a; // warm amber eyeshine (attention-driven, not cyan)
+export const WARDEN_CLAW = 0x241f1a; // keratin claw / horn (dark, matte)
+export const WARDEN_TOOTH = 0xc6bca4; // bone-pale teeth
+// ~4m agile ORGANIC predator (user override). Threat comes from SPEED + a clawing
+// swipe + a living, breathing, watching body — not size, and not a machine.
 export const WARDEN_HEIGHT = 4;
 
 // ---- Hero (DESIGN §5 / §10) ----
@@ -71,7 +76,7 @@ export const VEHICLE_COLORS = [0x6e6e6c, 0x55585c, 0x3a3c3e];
 export const SHOCK_RING = 0xf5ead8; // warm-dust white (no sci-fi cyan)
 export const FOOTFALL_DUST = 0x8a7e6c; // warm dust puff
 export const GROUND_CRACK = 0x26231f; // dark radial crack decal
-export const CRACK_COLD_RIM = 0x8fb0ba; // faint cold rim that briefly bleeds into cracks
+export const CRACK_COLD_RIM = 0x9a6b48; // warm dust rim on the claw-rake mark (organic, not cyan)
 
 // ---- UI chrome tokens (DESIGN §7.3) ----
 export const CHROME = {

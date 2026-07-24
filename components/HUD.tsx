@@ -93,12 +93,14 @@ export default function HUD({ engine }: { engine: Engine }) {
             'radial-gradient(ellipse at center, rgba(0,0,0,0) 42%, #5e1710 100%)',
         }}
       />
+      {/* extreme-proximity top tint — the creature's warm maw-breath fills the frame
+          (organic warm ember, not the old cold cyan) */}
       <div
         ref={coldRef}
         className="pointer-events-none fixed inset-x-0 top-0 z-10 h-1/3"
         style={{
           opacity: 0,
-          background: 'linear-gradient(to bottom, rgba(183,214,223,0.6), rgba(183,214,223,0))',
+          background: 'linear-gradient(to bottom, rgba(134,54,25,0.6), rgba(134,54,25,0))',
         }}
       />
       {/* graze hit flash — a hard red pulse so a collision is unmistakable */}
