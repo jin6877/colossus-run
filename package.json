@@ -1,0 +1,35 @@
+{
+  "name": "colossus-run",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@react-three/postprocessing": "^3.0.4",
+    "n8ao": "^1.10.3",
+    "next": "16.2.11",
+    "postprocessing": "^6.39.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.170.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.11",
+    "puppeteer-core": "^23.11.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
