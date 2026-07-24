@@ -9,6 +9,8 @@
 /coverage
 # transient esbuild bundle for the headless verify harness
 /.verify.cjs
+# compiled pure-logic modules for the unit runner (test/unit.cjs)
+/test/.pure
 
 # next.js
 /.next/

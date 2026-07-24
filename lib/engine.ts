@@ -22,6 +22,7 @@ import { Hero, type HeroInput } from './hero';
 import { Warden } from './warden';
 import { buildHeroRig, applyHeroPose, type HeroParts } from './render/heroRig';
 import { buildWardenRig, applyWardenPose, wardenFootWorld, type WardenParts } from './render/wardenRig';
+import { DustWall } from './render/dustWall';
 import { speedAt, gapTargetAt } from './difficulty';
 import { InputManager } from './input';
 import { CAM, SLOMO_SCALE } from './constants';
@@ -61,6 +62,7 @@ export class Engine {
   private warden = new Warden();
   private heroRig: HeroParts;
   private wardenRig: WardenParts;
+  private dustWall: DustWall;
 
   private state: GameState = 'title';
   private simTime = 0;
@@ -91,8 +93,10 @@ export class Engine {
     this.root.add(this.fx.group);
     this.heroRig = buildHeroRig();
     this.wardenRig = buildWardenRig(quality.proceduralBoneQuality);
+    this.dustWall = new DustWall(makeFrame());
     this.root.add(this.heroRig.group);
     this.root.add(this.wardenRig.group);
+    this.root.add(this.dustWall.mesh);
   }
 
   async init() {
@@ -486,6 +490,9 @@ export class Engine {
       reach,
     );
 
+    // chasing dust wall rides behind the warden (updated before the camera read)
+    this.dustWall.update(course, this.warden.s, camera, this.proximity);
+
     // camera: cinematic preview at the title, chase rig otherwise
     if (this.state === 'title') {
       this.titleCam(camera, hw.x, hw.z, ww.x, ww.z);
@@ -511,13 +518,12 @@ export class Engine {
   private titleCam(camera: PerspectiveCamera, hx: number, hz: number, wx: number, wz: number) {
     const t = this.simTime;
     const fr = this._fr; // hero frame (filled by worldAt(hero) above)
-    const side = Math.sin(t * 0.12) * 10;
-    // pulled back + higher so the whole 50m silhouette (incl. the watching head)
-    // reads through the dust, with the small hero in the foreground
-    camera.position.set(hx + fr.tx * 26 + fr.rx * side, 17, hz + fr.tz * 26 + fr.rz * side);
-    camera.lookAt(wx, 30, wz);
-    if (Math.abs(camera.fov - 50) > 0.01) {
-      camera.fov = 50;
+    const side = Math.sin(t * 0.12) * 11;
+    // pulled back + high, aimed up so the watching head/mask clears the frame top
+    camera.position.set(hx + fr.tx * 32 + fr.rx * side, 22, hz + fr.tz * 32 + fr.rz * side);
+    camera.lookAt(wx, 37, wz);
+    if (Math.abs(camera.fov - 48) > 0.01) {
+      camera.fov = 48;
       camera.updateProjectionMatrix();
     }
   }
