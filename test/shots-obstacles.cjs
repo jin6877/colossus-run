@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Ad-hoc capture: drive a run and grab several close frames to confirm the
-// obstacle danger telegraphs (red hazard zones, amber jump/slide chevrons,
-// gap pit) render clearly. Not part of the pass/fail suite.
+// forward obstacles (cars, debris chunks, gap pits, low barriers, overhead bars)
+// read clearly by FORM + natural shadow — no color paint. Not pass/fail.
 const puppeteer = require('puppeteer-core');
 const path = require('path');
 const PORT = process.env.CR_PORT || '3191';

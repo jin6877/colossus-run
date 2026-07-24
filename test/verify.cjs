@@ -1,10 +1,12 @@
 /* eslint-disable */
 /**
  * Headless end-to-end verification (system Chrome + SwiftShader software WebGL).
- * Proves: app loads with no page errors, the scene renders (title preview), the
- * run loop progresses (distance up, warden chases, proximity climbs), the warden
- * fractures the flanking city (debris/rubble appear), a catch triggers the
- * death-cam and result card, and a seed reproduces the same course.
+ * Proves the ~4m agile-predator claw core: app loads with no page errors, the
+ * scene renders (title preview), a hero who RUNS STRAIGHT (no dodging) actually
+ * DIES (the claw lands), an actively-dodging run makes forward progress while the
+ * warden fires claw swipes + shatters street-level structures (debris/rubble),
+ * proximity climbs, a catch triggers the death-cam + result card, and a seed
+ * reproduces the same course.
  *
  * Run: node test/verify.cjs   (needs `next start` up; port via CR_PORT)
  */
@@ -74,35 +76,59 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const fpA = await page.evaluate(() => window.__cr.fingerprint());
   await page.screenshot({ path: path.join(OUT, 'cr-title.png') });
 
-  // ---------- Phase B: begin run + progression ----------
+  // ---------- Phase B: RUN STRAIGHT -> must die (the whole point) ----------
+  await page.evaluate(() => window.__cr.begin());
+  await page.evaluate(() => window.__cr.steer(0)); // dead straight, no dodging at all
+  let straightDied = false;
+  let straightDist = 0;
+  let straightReason = null;
+  for (let i = 0; i < 24; i++) {
+    await sleep(300);
+    const s = await page.evaluate(() => window.__cr.stats());
+    straightDist = Math.max(straightDist, s.distance);
+    if (s.state !== 'running') {
+      straightDied = true;
+      const r = await page.evaluate(() => window.__cr.result());
+      straightReason = r && r.reason;
+      break;
+    }
+  }
+  console.log(`      straight-line run: died=${straightDied} dist=${straightDist} reason=${straightReason}`);
+  ok('running straight gets you KILLED (no free survival)', straightDied, `dist=${straightDist}`);
+  // let it settle into gameover
+  for (let i = 0; i < 12; i++) {
+    const st = await page.evaluate(() => window.__cr.state());
+    if (st === 'gameover') break;
+    await sleep(300);
+  }
+
+  // ---------- Phase C: active dodging -> progress + claw swipes + destruction ----------
   await page.evaluate(() => window.__cr.begin());
   let maxDist = 0;
   let maxProx = 0;
   let maxDebris = 0;
   let maxRubble = 0;
   let sawRunning = false;
-  let sawStomp = false;
+  let sawAttacking = false;
   let ranShot = false;
+  let teleShot = false;
   let dyingSeen = false;
   let overSeen = false;
-  let deathProx = 0;
-  // survive a while with a serpentine steer + periodic jump/slide/dash
   for (let i = 0; i < 26; i++) {
     const phase = i * 0.5;
-    await page.evaluate((v) => window.__cr.steer(v), Math.sin(phase) * 0.8);
+    await page.evaluate((v) => window.__cr.steer(v), Math.sin(phase) * 0.85);
     if (i % 3 === 0) await page.evaluate(() => window.__cr.jump());
     if (i % 4 === 0) await page.evaluate(() => window.__cr.dash());
     if (i % 5 === 0) {
       await page.evaluate(() => window.__cr.slide(true));
       setTimeout(() => page.evaluate(() => window.__cr.slide(false)).catch(() => {}), 250);
     }
-    await sleep(450);
+    await sleep(420);
     const s = await page.evaluate(() => window.__cr.stats());
     if (s.state === 'running') sawRunning = true;
-    if (s.stomping) sawStomp = true;
+    if (s.attacking) sawAttacking = true;
     if (s.state === 'dying' && !dyingSeen) {
       dyingSeen = true;
-      deathProx = s.proximity;
       await page.screenshot({ path: path.join(OUT, 'cr-death.png') });
     }
     if (s.state === 'gameover') overSeen = true;
@@ -110,66 +136,45 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     maxProx = Math.max(maxProx, s.proximity);
     maxDebris = Math.max(maxDebris, s.debris);
     maxRubble = Math.max(maxRubble, s.rubble);
-    if (!ranShot && s.distance > 25) {
+    if (!ranShot && s.distance > 20) {
+      // the money shot: forward road + hero low/back + predator on the heels
       await page.screenshot({ path: path.join(OUT, 'cr-run.png') });
       ranShot = true;
+    }
+    if (!teleShot && s.attacking) {
+      await page.screenshot({ path: path.join(OUT, 'cr-telegraph.png') });
+      teleShot = true;
     }
     if (s.state !== 'running') break;
   }
   console.log(
-    `      progression: maxDist=${maxDist} maxProx=${maxProx.toFixed(2)} debris=${maxDebris} rubble=${maxRubble} stomp=${sawStomp}`,
+    `      active run: maxDist=${maxDist} maxProx=${maxProx.toFixed(2)} debris=${maxDebris} rubble=${maxRubble} attacking=${sawAttacking}`,
   );
   ok('run entered running state', sawRunning);
   ok('hero made forward progress (distance > 0)', maxDist > 0, `maxDist=${maxDist}`);
-  ok('warden fractured the city (debris or rubble appeared)', maxDebris + maxRubble > 0, `debris=${maxDebris} rubble=${maxRubble}`);
-  ok('warden foot-stomp hazard fires (telegraph active)', sawStomp, `stomp=${sawStomp}`);
+  ok('warden shattered street-level structures (debris or rubble)', maxDebris + maxRubble > 0, `debris=${maxDebris} rubble=${maxRubble}`);
+  ok('warden claw swipe fires (telegraph active)', sawAttacking, `attacking=${sawAttacking}`);
+  ok('slam-telegraph threat registered (proximity rose)', maxProx > 0.25, `maxProx=${maxProx.toFixed(2)}`);
 
-  // ---------- Phase C: looming shot, then death-cam -> result ----------
-  await page.evaluate(() => window.__cr.steer(0));
-  await page.evaluate(() => window.__cr.slide(false));
-
-  // reversed-camera looming shot: the warden fills the frame by default now, so
-  // just grab a running frame (watch a stomp telegraph if we catch one)
-  const stC = await page.evaluate(() => window.__cr.stats());
-  if (stC.state === 'running') {
-    for (let j = 0; j < 6; j++) {
-      await sleep(250);
-      const sj = await page.evaluate(() => window.__cr.stats());
-      maxProx = Math.max(maxProx, sj.proximity);
-      if (sj.stomping || j === 5) {
-        await page.screenshot({ path: path.join(OUT, 'cr-proximity.png') });
-        break;
-      }
-      if (sj.state !== 'running') {
-        if (sj.state === 'dying') dyingSeen = true;
-        if (sj.state === 'gameover') overSeen = true;
-        break;
-      }
-    }
-  }
-
-  // deterministically trigger the catch, so the death-cam + result card are
-  // exercised without depending on SwiftShader wall-clock timing
+  // deterministically trigger the catch if the dodging kept us alive, so the
+  // death-cam + result card are exercised without depending on wall-clock timing
   if (!dyingSeen && !overSeen) {
     await page.evaluate(() => window.__cr.kill());
   }
   for (let i = 0; i < 40 && !overSeen; i++) {
-    await sleep(400);
+    await sleep(350);
     const s = await page.evaluate(() => window.__cr.stats());
     if (s.state === 'dying' && !dyingSeen) {
       dyingSeen = true;
-      deathProx = s.proximity;
       await page.screenshot({ path: path.join(OUT, 'cr-death.png') });
     }
     if (s.state === 'gameover') overSeen = true;
   }
   await sleep(600);
   const result = await page.evaluate(() => window.__cr.result());
-  console.log('      result:', JSON.stringify(result), 'maxProx=', maxProx.toFixed(2));
-  ok('slam-telegraph threat registered (proximity rose)', maxProx > 0.25, `maxProx=${maxProx.toFixed(2)}`);
-  ok('death-cam triggered (dying state)', dyingSeen, `proxAtDeath=${deathProx.toFixed(2)}`);
+  console.log('      result:', JSON.stringify(result));
+  ok('death-cam triggered (dying state)', dyingSeen);
   ok('reached game over + result card', overSeen && result && result.distance >= 0, `dist=${result && result.distance}`);
-  // the result card is a DOM overlay
   const hasCard = await page.evaluate(() =>
     Array.from(document.querySelectorAll('*')).some((e) => /m 생존/.test(e.textContent || '')),
   );

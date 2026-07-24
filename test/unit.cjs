@@ -11,8 +11,21 @@
 const P = './.pure/lib';
 const { Rng, hash, chunkRng } = require(`${P}/rng.js`);
 const { parseSeed, randomSeed, seedCode } = require(`${P}/share.js`);
-const { speedAt, gapTargetAt, SPEED_MIN, SPEED_MAX } = require(`${P}/difficulty.js`);
+const {
+  speedAt,
+  gapTargetAt,
+  swipeIntervalAt,
+  windupAt,
+  leadTimeAt,
+  SPEED_MIN,
+  SPEED_MAX,
+} = require(`${P}/difficulty.js`);
 const { Course, makeFrame } = require(`${P}/course.js`);
+const { Warden } = require(`${P}/warden.js`);
+
+// engine's claw kill band half-width (lib/engine.ts SWIPE_HALF) — the lateral
+// window a swipe kills within; mirrored here to prove the mechanic in isolation.
+const SWIPE_HALF = 2.5;
 
 let fails = 0;
 const ok = (name, cond, extra = '') => {
@@ -59,6 +72,55 @@ const approx = (a, b, e = 1e-9) => Math.abs(a - b) < e;
   ok('gap target shrinks with distance', gapTargetAt(3000) < gapTargetAt(0));
   ok('gap target has a floor (never 0)', gapTargetAt(1e9) > 0);
   ok('gap target monotone non-increasing', gapTargetAt(500) >= gapTargetAt(1500));
+  // claw cadence tightens + windup shrinks (more relentless deeper); lead grows
+  ok('swipe interval tightens with distance', swipeIntervalAt(4000) < swipeIntervalAt(0));
+  ok('swipe interval has a floor', swipeIntervalAt(1e9) >= 0.6 - 1e-6);
+  ok('windup shrinks with distance', windupAt(4000) < windupAt(0));
+  ok('windup has a floor', windupAt(1e9) >= 0.4 - 1e-6);
+  ok('lead time grows with distance', leadTimeAt(4000) > leadTimeAt(0));
+}
+
+// ---- warden lethality (the core: running straight must die) ----
+{
+  const DT = 1 / 60;
+  const AVENUE = 13;
+
+  // simulate a run, returning every swipe strike's (targetLat, heroLat) pair
+  function run(heroLatFn, seconds) {
+    const w = new Warden();
+    w.reset(6);
+    const strikes = [];
+    let heroS = 0;
+    const steps = Math.floor(seconds / DT);
+    let prevLat = heroLatFn(0);
+    for (let i = 0; i < steps; i++) {
+      const tsec = i * DT;
+      const heroLat = heroLatFn(tsec);
+      const heroLatVel = (heroLat - prevLat) / DT;
+      prevLat = heroLat;
+      const speed = 15;
+      heroS += speed * DT;
+      const dist = Math.floor(heroS);
+      w.update(
+        DT, heroS, heroLat, heroLatVel, speed,
+        swipeIntervalAt(dist), windupAt(dist), leadTimeAt(dist), AVENUE,
+      );
+      if (w.strikeEvent) strikes.push({ targetLat: w.targetLat, heroLat });
+    }
+    return strikes;
+  }
+
+  // a hero who never moves laterally (runs dead straight)
+  const straight = run(() => 1.5, 5);
+  ok('straight runner draws swipes', straight.length >= 2, `strikes=${straight.length}`);
+  const allInBand = straight.every((s) => Math.abs(s.heroLat - s.targetLat) < SWIPE_HALF);
+  ok('every swipe lands on a straight runner (in the kill band) -> death', allInBand);
+
+  // a hero who jukes hard side-to-side escapes at least one swipe's band
+  const juker = run((t) => Math.sin(t * 6.0) * (AVENUE - 2), 5);
+  const escapedAny = juker.some((s) => Math.abs(s.heroLat - s.targetLat) >= SWIPE_HALF);
+  ok('an actively juking hero can escape the swipe band', juker.length === 0 || escapedAny,
+    `strikes=${juker.length} escaped=${escapedAny}`);
 }
 
 // ---- course reproducibility + sanity ----

@@ -1,6 +1,7 @@
 /* eslint-disable */
-// Ad-hoc: capture running frames of the reversed-camera foot-dodge core so I can
-// eyeball the framing (giant looming + hero + telegraph shadow). Not pass/fail.
+// Ad-hoc: capture running frames of the over-shoulder claw-dodge core so I can
+// eyeball the framing (forward road + hero low/back + 4m predator on the heels +
+// claw telegraph rake + forward obstacles). Not pass/fail.
 const puppeteer = require('puppeteer-core');
 const path = require('path');
 const PORT = process.env.CR_PORT || '3195';
@@ -28,7 +29,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const s = await p.evaluate(() => window.__cr.stats());
     if (s.state === 'running') {
       await p.screenshot({ path: path.join(OUT, `cx-run-${shot++}.png`) });
-      if (s.stomping && !teleShot) { await p.screenshot({ path: path.join(OUT, 'cx-telegraph.png') }); teleShot = true; }
+      if (s.attacking && !teleShot) { await p.screenshot({ path: path.join(OUT, 'cx-telegraph.png') }); teleShot = true; }
     } else {
       await p.screenshot({ path: path.join(OUT, 'cx-death.png') });
       break;

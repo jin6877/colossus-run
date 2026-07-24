@@ -17,6 +17,7 @@
     "../lib/share.ts",
     "../lib/difficulty.ts",
     "../lib/course.ts",
-    "../lib/constants.ts"
+    "../lib/constants.ts",
+    "../lib/warden.ts"
   ]
 }
