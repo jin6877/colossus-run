@@ -8,7 +8,7 @@
  * gameover) that stitches the reused engine (debris/fx) to the new systems
  * (course streaming, hero, warden, chase camera).
  */
-import { Group, Vector3, PerspectiveCamera, Color, Mesh, BoxGeometry, MeshStandardMaterial } from 'three';
+import { Group, Vector3, PerspectiveCamera, Color, Mesh, BoxGeometry, MeshStandardMaterial, type Object3D } from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { initRapier, makeWorld, GroundPlate, FixedStepper } from './physics/world';
 import { DebrisSystem } from './physics/debrisPool';
@@ -23,6 +23,7 @@ import { Warden } from './warden';
 import { buildHeroRig, applyHeroPose, type HeroParts } from './render/heroRig';
 import { buildWardenRig, applyWardenPose, wardenFootWorld, type WardenParts } from './render/wardenRig';
 import { DustWall } from './render/dustWall';
+import { obstacleMark } from './render/obstacleMarks';
 import { speedAt, gapTargetAt } from './difficulty';
 import { InputManager } from './input';
 import { CAM, SLOMO_SCALE } from './constants';
@@ -74,6 +75,8 @@ export class Engine {
   private distance = 0;
   private bestDistance = 0;
   private caughtReason: 'caught' | 'block' | 'gap' = 'caught';
+  hitFlash = 0; // spikes on a graze (HUD red flash + shake feedback)
+  private dropping: { mesh: Object3D; y0: number; y1: number; t: number; dur: number; x: number; z: number }[] = [];
 
   private _fr: Frame = makeFrame();
   private _fr2: Frame = makeFrame();
@@ -135,6 +138,8 @@ export class Engine {
     this.distance = 0;
     this.proximity = 0;
     this.simTime = 0;
+    this.hitFlash = 0;
+    this.dropping.length = 0;
     this.stepper.reset();
   }
 
@@ -154,6 +159,8 @@ export class Engine {
     this.catchTimer = 0;
     this.fractureAcc = 0;
     this.promoteBudget = this.quality.obstaclePromoteCap;
+    this.hitFlash = 0;
+    this.dropping.length = 0;
     this.onStateChange?.('running');
   }
 
@@ -186,6 +193,7 @@ export class Engine {
       proximity: this.proximity,
       dashReady: this.hero.dashReady,
       stamina: this.hero.stamina,
+      hitFlash: this.hitFlash,
     };
   }
 
@@ -242,6 +250,8 @@ export class Engine {
     }
 
     // ---- render-rate updates (poses + camera) ----
+    this.updateDrops(d);
+    if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - d / 0.35);
     this.renderActors(camera, d);
     this.bloom.value = Math.max(0.25, this.fx.bloomEnergy);
   }
@@ -386,18 +396,33 @@ export class Engine {
     if (ahead < 22 || ahead > 130) return;
     if (Math.random() > 0.55) return;
     this.promoteBudget -= 1;
-    const hw = this.course.frame(info.s, this._fr2).halfWidth;
+    this.course.frame(info.s, this._fr2);
+    const hw = this._fr2.halfWidth;
     const lane = Math.max(-hw + 2, Math.min(hw - 2, info.lateral > 0 ? hw - 3 : -hw + 3));
     const wpos = this.course.worldAt(info.s, lane, this._fr);
-    // rubble mesh (a low faceted mound in the lane)
+    const facing = Math.atan2(-this._fr.tx, -this._fr.tz);
+
+    // container: a ground telegraph (mark + shadow, DESIGN §2.4 착지 예고) that
+    // appears immediately, and the rubble chunk that DROPS onto it (so the player
+    // sees "그가 부순 것이 내 앞에 떨어진다").
+    const container = new Group();
+    container.add(obstacleMark('rubble', wpos.x, wpos.z, facing, 1.9));
     const mesh = new Mesh(
       new BoxGeometry(3.4, 1.8, 3.4),
-      new MeshStandardMaterial({ color: new Color(info.color).multiplyScalar(0.9), roughness: 0.9, metalness: 0, flatShading: true }),
+      new MeshStandardMaterial({
+        color: new Color(info.color).multiplyScalar(0.9),
+        roughness: 0.9,
+        metalness: 0,
+        flatShading: true,
+      }),
     );
-    mesh.position.set(wpos.x, 0.9, wpos.z);
     mesh.rotation.set(Math.random() * 0.4, Math.random() * Math.PI, Math.random() * 0.4);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    mesh.position.set(wpos.x, 22, wpos.z); // starts high, falls in
+    container.add(mesh);
+    this.dropping.push({ mesh, y0: 22, y1: 0.9, t: 0, dur: 0.55, x: wpos.x, z: wpos.z });
+
     const ob: Obstacle = {
       id: 900000 + ((info.id * 7) & 0xffff),
       kind: 'rubble',
@@ -409,7 +434,30 @@ export class Engine {
       resolved: false,
       promoted: true,
     };
-    this.chunks.addObstacleAt(info.s, ob, mesh);
+    this.chunks.addObstacleAt(info.s, ob, container);
+  }
+
+  /** Advance falling promoted-rubble chunks; puff dust + shake on landing. */
+  private updateDrops(dt: number) {
+    for (let i = this.dropping.length - 1; i >= 0; i--) {
+      const d = this.dropping[i];
+      d.t += dt;
+      const k = Math.min(1, d.t / d.dur);
+      d.mesh.position.y = d.y1 + (d.y0 - d.y1) * (1 - k * k); // ease-in fall
+      if (k >= 1) {
+        d.mesh.position.y = d.y1;
+        this.fx.footfall([d.x, 0.3, d.z], 0.7, this.proximity);
+        this.shake.add(0.14);
+        this.dropping.splice(i, 1);
+      }
+    }
+  }
+
+  /** Graze feedback: slow the hero, shake, and flash the screen red (readable hit). */
+  private grazeHit() {
+    this.hero.graze();
+    this.shake.add(0.4);
+    this.hitFlash = 1;
   }
 
   private resolveObstacles() {
@@ -431,14 +479,14 @@ export class Engine {
         case 'rubble': {
           o.resolved = true;
           if (latDist < o.latHalf - 0.2 && !hero.dashing) this.triggerDeath('block');
-          else hero.graze();
+          else this.grazeHit();
           break;
         }
         case 'jump': {
           if (hero.yJump > 0.6) o.resolved = true;
           else {
             o.resolved = true;
-            hero.graze();
+            this.grazeHit();
             if (latDist < o.latHalf - 0.4) this.triggerDeath('block');
           }
           break;

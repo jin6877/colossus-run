@@ -33,10 +33,13 @@ import {
   TRUNK_COLOR,
   VEHICLE_COLORS,
   CHUNK_LEN,
+  HAZARD_RED,
+  HAZARD_AMBER,
   type MaterialFamily,
 } from '../constants';
 import { chunkRng } from '../rng';
 import { Course, makeFrame, type Frame } from '../course';
+import { obstacleMark } from '../render/obstacleMarks';
 import type { QualityPreset } from '../quality';
 import type { Chunk, Obstacle, BuildingInfo } from './chunkTypes';
 
@@ -400,36 +403,48 @@ function buildObstacle(
     id, kind, sMin: s - 2, sMax: s + 2, latCenter: lat, latHalf: 2, yClear: 0, resolved: false,
   };
 
+  let res: Obstacle | null = null;
   switch (kind) {
     case 'vehicle': {
+      // a warm rust/danger edge stripe reads it as a hazard, not scenery
       put(2.2, 1.5, 4.4, 0.75, VEHICLE_COLORS[id % VEHICLE_COLORS.length], 0.5, 0.15);
       put(1.8, 0.9, 2.2, 1.7, 0x2b2d30, 0.4, 0.2); // cabin
-      return { ...base, sMin: s - 2.4, sMax: s + 2.4, latHalf: 1.5, yClear: 1.6 };
+      put(2.35, 0.28, 4.5, 0.2, HAZARD_RED, 0.6, 0); // low hazard skirt
+      res = { ...base, sMin: s - 2.4, sMax: s + 2.4, latHalf: 1.5, yClear: 1.6 };
+      break;
     }
     case 'block': {
       put(3.0, 2.4, 3.0, 1.2, 0x6b6660, 0.85, 0);
-      return { ...base, latHalf: 1.6, yClear: 2.4 };
+      put(3.15, 0.32, 3.15, 0.22, HAZARD_RED, 0.6, 0); // hazard base band
+      res = { ...base, latHalf: 1.6, yClear: 2.4 };
+      break;
     }
     case 'jump': {
-      // low barrier — hop it
+      // low barrier — hop it (amber = time your action)
       put(3.6, 0.9, 1.0, 0.45, 0x5a5650, 0.8, 0);
-      return { ...base, kind: 'jump', latHalf: 1.9, yClear: 1.1 };
+      put(3.7, 0.22, 1.1, 0.92, HAZARD_AMBER, 0.6, 0); // amber cap
+      res = { ...base, kind: 'jump', latHalf: 1.9, yClear: 1.1 };
+      break;
     }
     case 'slide': {
-      // overhead sign / fallen beam — slide under
+      // overhead sign / fallen beam — slide under (amber underside)
       put(5.0, 0.7, 1.0, 2.35, 0x4a4640, 0.7, 0.05);
-      // support posts
-      put(0.4, 2.6, 0.4, 1.3, 0x3a3833, 0.7, 0.1);
-      return { ...base, kind: 'slide', latHalf: 2.4, yClear: 1.9 };
+      put(5.05, 0.16, 1.05, 1.98, HAZARD_AMBER, 0.6, 0); // amber lower lip (duck cue)
+      put(0.4, 2.6, 0.4, 1.3, 0x3a3833, 0.7, 0.1); // support posts
+      res = { ...base, kind: 'slide', latHalf: 2.4, yClear: 1.9 };
+      break;
     }
     case 'gap': {
-      // a hole in the road — jump across (no mesh; the road quad still draws, the
-      // gap is a game volume the player must clear)
-      return { ...base, kind: 'gap', sMin: s - 3, sMax: s + 3, latHalf: Math.min(hw, 5), yClear: 0 };
+      // a hole in the road — the pit decal (obstacleMark) makes it a visible hole;
+      // jump across it. red rim + up-chevrons telegraph it from distance.
+      res = { ...base, kind: 'gap', sMin: s - 3, sMax: s + 3, latHalf: Math.min(hw, 5), yClear: 0 };
+      break;
     }
     default:
       return null;
   }
+  parent.add(obstacleMark(res.kind, x, z, facing, res.latHalf));
+  return res;
 }
 
 function jitter(rng: { range: (a: number, b: number) => number }, hex: number): number {

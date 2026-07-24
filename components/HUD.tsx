@@ -20,6 +20,8 @@ export default function HUD({ engine }: { engine: Engine }) {
   const dashRef = useRef<HTMLDivElement>(null);
   const redRef = useRef<HTMLDivElement>(null);
   const coldRef = useRef<HTMLDivElement>(null);
+  const flashRef = useRef<HTMLDivElement>(null);
+  const dangerRef = useRef<HTMLSpanElement>(null);
   const lastActivity = useRef(0);
   const mobile = isMobileDevice();
 
@@ -60,6 +62,11 @@ export default function HUD({ engine }: { engine: Engine }) {
       if (coldRef.current) {
         coldRef.current.style.opacity = String(h.proximity > 0.85 ? (h.proximity - 0.85) / 0.15 * 0.12 : 0);
       }
+      // graze hit flash (readable collision feedback)
+      if (flashRef.current) flashRef.current.style.opacity = String((h.hitFlash || 0) * 0.5);
+      if (dangerRef.current) {
+        dangerRef.current.style.opacity = String(h.proximity > 0.55 ? (h.proximity - 0.55) / 0.45 : 0);
+      }
       // idle fade (keep visible when the warden is close)
       const idle = now - lastActivity.current > 2600 && h.proximity < 0.45;
       if (wrapRef.current) wrapRef.current.style.opacity = idle ? '0.2' : '1';
@@ -94,6 +101,12 @@ export default function HUD({ engine }: { engine: Engine }) {
           background: 'linear-gradient(to bottom, rgba(183,214,223,0.6), rgba(183,214,223,0))',
         }}
       />
+      {/* graze hit flash — a hard red pulse so a collision is unmistakable */}
+      <div
+        ref={flashRef}
+        className="pointer-events-none fixed inset-0 z-10"
+        style={{ opacity: 0, background: 'radial-gradient(ellipse at center, rgba(196,64,46,0) 30%, #c4402e 100%)' }}
+      />
 
       <div ref={wrapRef} className="hud-fade pointer-events-none fixed inset-0 z-20">
         {/* survival distance — the one focus (top-left, DESIGN §7.2) */}
@@ -112,9 +125,18 @@ export default function HUD({ engine }: { engine: Engine }) {
           </span>
         </div>
 
-        {/* thin danger bar (backup to the diegetic vignette) — bottom edge */}
-        <div className="absolute bottom-0 left-1/2 h-1 w-40 -translate-x-1/2 overflow-hidden rounded-full bg-white/[0.06]">
-          <div ref={gaugeRef} className="h-full rounded-full" style={{ width: '0%' }} />
+        {/* danger indicator — "위험" label + gauge (backup to the diegetic vignette) */}
+        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1.5">
+          <span
+            ref={dangerRef}
+            className="text-[11px] font-bold uppercase tracking-[0.3em] text-[#c4402e]"
+            style={{ opacity: 0 }}
+          >
+            위험
+          </span>
+          <div className="h-1.5 w-56 overflow-hidden rounded-full bg-white/[0.06]">
+            <div ref={gaugeRef} className="h-full rounded-full" style={{ width: '0%' }} />
+          </div>
         </div>
 
         {/* dash cooldown radial (also the mobile dash button) */}
