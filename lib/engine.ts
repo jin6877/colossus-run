@@ -83,6 +83,7 @@ export class Engine {
   private deathElapsed = 0;
   private fractureAcc = 0;
   private strideAcc = 0;
+  private strideKick = false;
   private distance = 0;
   private bestDistance = 0;
   private caughtReason: DeathReason = 'claw';
@@ -318,6 +319,13 @@ export class Engine {
       if (this.strideAcc >= STRIDE_DUST) {
         this.strideAcc = 0;
         this.fx.strideDust([wf.x, 0.15, wf.z]);
+        // every other stride, kick a chunk of street debris forward — the predator
+        // plows through the road clutter (reliable 4m-scale destruction spectacle)
+        this.strideKick = !this.strideKick;
+        if (this.strideKick && this.debris) {
+          this._impact.set(wf.x - this._fr.tx * 2, -1, wf.z - this._fr.tz * 2);
+          this.debris.spawnFlyingChunk([wf.x, 0.35, wf.z], 0.55, 0x6b6660, this._impact);
+        }
       }
       this.fractureAcc += this.quality.wardenFractureRate * dt;
       while (this.fractureAcc >= 1) {
